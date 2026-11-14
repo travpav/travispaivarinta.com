@@ -25,11 +25,15 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {
   width: 100%; height: 100%; overflow: hidden;
+  overscroll-behavior: none; touch-action: manipulation;
+  -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
   background: var(--bg); color: var(--w);
   font-family: 'Press Start 2P', ui-monospace, Menlo, monospace;
 }
 
-#canvas { position: fixed; inset: 0; display: block; }
+/* Explicit CSS size: without it a canvas shows at its pixel size, 2-3x too big on dense screens. */
+#canvas { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: block; }
 
 #scanlines {
   position: fixed; inset: 0;
@@ -37,28 +41,41 @@ html, body {
   pointer-events: none; z-index: 20;
 }
 
+/* Reads the phone's safe-area insets for the script. */
+#safe {
+  position: fixed; left: 0; top: 0; visibility: hidden; pointer-events: none;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
+/* The script sets this box's padding so the text sits between the formation and the ship. */
 #bio {
+  --avail: calc(100vw - 40px);
   position: fixed; inset: 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: clamp(5px, 1.3vh, 12px);
+  display: flex; align-items: center; justify-content: center;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: 17vh 72px;
   pointer-events: none; z-index: 10;
 }
+#lines {
+  display: flex; flex-direction: column; align-items: center;
+  gap: clamp(5px, 1.3vh, 24px);
+  min-width: 0; max-width: 100%;
+}
 
-/* --n is the line's character count: the font shrinks just enough to fit a phone. */
+/* --n is the line's character count: the font shrinks just enough to fit the space it has. */
 .bl {
   opacity: 0; text-align: center; white-space: nowrap;
   line-height: 1.8; min-height: 1.8em;
-  font-size: min(var(--fs), calc((100vw - 40px) / (var(--n, 20) * 1.1)));
+  font-size: min(var(--fs), calc(var(--avail) / (var(--n, 20) * 1.1)));
 }
-.bl.name  { --fs: clamp(12px, 2.6vw, 20px); color: var(--w); text-shadow: 0 0 12px rgba(255,255,255,0.5); }
-.bl.role  { --fs: clamp(9px, 1.8vw, 14px);  color: var(--w75); }
-.bl.small { --fs: clamp(7px, 1.3vw, 10px);  color: var(--w55); letter-spacing: 0.08em; }
-.bl.tech  { --fs: clamp(7px, 1.3vw, 10px);  color: var(--tech); letter-spacing: 0.08em; text-shadow: 0 0 8px var(--tech-glow); }
+.bl.name  { --fs: clamp(12px, min(2.6vw, 3vh), 64px);  color: var(--w); text-shadow: 0 0 12px rgba(255,255,255,0.5); }
+.bl.role  { --fs: clamp(9px, min(1.8vw, 2vh), 44px);   color: var(--w75); }
+.bl.small { --fs: clamp(7px, min(1.3vw, 1.5vh), 32px); color: var(--w55); letter-spacing: 0.08em; }
+.bl.tech  { --fs: clamp(7px, min(1.3vw, 1.5vh), 32px); color: var(--tech); letter-spacing: 0.08em; text-shadow: 0 0 8px var(--tech-glow); }
 
 .ch { display: inline-block; opacity: 0; animation: char-drop 0.44s cubic-bezier(0.17,1.35,0.4,1) forwards; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 @keyframes char-drop {
   0%   { opacity: 0; transform: translateY(-65vh); }
@@ -67,17 +84,26 @@ html, body {
   100% { opacity: 1; transform: translateY(0); }
 }
 
+/* Company and school names inside a line are links. */
+.bl a { position: relative; color: var(--w); text-decoration: none; pointer-events: auto; cursor: pointer; }
+.bl a::after { content: ""; position: absolute; inset: -9px -5px; }   /* bigger tap target */
+.bl a .ch { border-bottom: max(1px, 0.14em) solid currentColor; padding-bottom: 0.18em; }
+.bl a:hover .ch, .bl a:focus-visible .ch { background: var(--w); color: var(--bg); }
+.bl a:focus-visible { outline: none; }
+
 .bl.connect {
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;
-  white-space: normal; min-height: 36px; margin-top: 8px;
-  font-size: clamp(7px, 1.3vw, 10px);
+  --fs: clamp(7px, min(1.3vw, 1.5vh), 32px);
+  font-size: var(--fs);
+  display: flex; flex-wrap: wrap; justify-content: center; gap: max(10px, 1em);
+  white-space: normal; min-height: calc(3.2em + 4px); margin-top: 0.8em;
 }
 .btn {
+  display: inline-flex; align-items: center; justify-content: center;
   font: inherit; line-height: 1; letter-spacing: 0.06em;
   color: var(--w); background: var(--bg);
-  border: 2px solid var(--w); padding: 11px 12px;
+  border: max(2px, 0.2em) solid var(--w); padding: 1.1em 1.2em; min-height: 36px;
   text-decoration: none; cursor: pointer; opacity: 0;
-  box-shadow: 3px 3px 0 var(--w35);
+  box-shadow: 0.3em 0.3em 0 var(--w35);
   user-select: text; -webkit-user-select: text;
 }
 .btn:hover, .btn:focus-visible { background: var(--w); color: var(--bg); outline: none; }
@@ -88,26 +114,30 @@ html, body {
 .connect.on .btn:nth-child(3) { animation-delay: 300ms; }
 
 #hud {
-  position: fixed;
+  position: fixed; left: 0; width: 100%;
   top: max(10px, env(safe-area-inset-top, 0px));
-  left: 0; right: 0;
   display: flex; justify-content: space-between; align-items: flex-start;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
-  font-size: 9px; color: var(--w35);
+  font-size: clamp(8px, min(2.4vw, 1.3vh), 22px); color: var(--w35);
   pointer-events: none; z-index: 15; line-height: 1.6;
 }
-#hud small { display: block; font-size: 7px; color: var(--w18); margin-bottom: 3px; }
+#hud small { display: block; font-size: 0.78em; color: var(--w18); margin-bottom: 0.3em; }
+#lives { display: inline-flex; gap: 0.5em; min-height: 1.6em; align-items: center; }
+#lives svg { width: 1.3em; height: 1.1em; fill: currentColor; display: block; }
 
 #prompt {
-  position: fixed;
+  position: fixed; left: 0; width: 100%;
   bottom: max(16px, env(safe-area-inset-bottom, 0px));
-  left: 0; right: 0;
-  text-align: center; font-size: 7px; letter-spacing: 0.14em;
+  text-align: center; font-size: clamp(7px, 1vh, 16px); letter-spacing: 0.14em;
   color: var(--w18); pointer-events: none; z-index: 15;
   animation: blink 1.1s step-end infinite; transition: opacity 0.6s;
 }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+/* Short, wide screens (a phone on its side): game on the left, text on the right. */
+body.side #hud { padding-left: 12px; padding-right: 12px; }
+body.side #lines { gap: clamp(3px, 1.1vh, 12px); }
 
 @media (prefers-reduced-motion: reduce) {
   .ch, .connect.on .btn { animation-duration: 0.01s !important; animation-delay: 0s !important; }
@@ -119,56 +149,68 @@ html, body {
 
 <canvas id="canvas"></canvas>
 <div id="scanlines"></div>
+<div id="safe"></div>
 <div id="hud">
   <div><small>SCORE</small><span id="score">00000</span></div>
   <div style="text-align:center"><small>STAGE</small><span>1</span></div>
-  <div style="text-align:right"><small>SHIPS</small><span>▲ ▲ ▲</span></div>
+  <div style="text-align:right"><small>SHIPS</small><span id="lives" role="img" aria-label="3 ships"></span></div>
 </div>
 <div id="bio">
-  <div class="bl connect" id="connect">
-    <button class="btn" id="emailBtn" type="button">EMAIL</button>
-    <a class="btn" href="https://www.linkedin.com/in/travis-paivarinta-58450824b/" target="_blank" rel="noopener">LINKEDIN</a>
-    <a class="btn" href="https://estimatekit.com" target="_blank" rel="noopener">ESTIMATEKIT.COM</a>
+  <div id="lines">
+    <div class="bl connect" id="connect">
+      <button class="btn" id="emailBtn" type="button">EMAIL</button>
+      <a class="btn" href="https://www.linkedin.com/in/travis-paivarinta-58450824b/" target="_blank" rel="noopener">LINKEDIN</a>
+      <a class="btn" href="https://estimatekit.com" target="_blank" rel="noopener">ESTIMATEKIT.COM</a>
+    </div>
   </div>
 </div>
 <div id="prompt">STAGE  1  READY</div>
 
 <script>
 const EMAIL = 'travisjustinp@gmail.com';
-const C = { boss: '#ff4466', cyan: '#00e5ff', gold: '#ffd700', tech: '#39ff14', ship: '#00ffff' };
+const URL_EK  = 'https://estimatekit.com';
+const URL_RS  = 'https://ritchiesmith.com';
+const URL_SP  = 'https://www.specialized.com/ca/en';
+const URL_UFV = 'https://www.ufv.ca';
+const C = { boss: '#ff4466', hurt: '#b06cff', cyan: '#00e5ff', gold: '#ffd700', tech: '#39ff14', ship: '#00ffff', shot: '#ffffaa', eshot: '#ff7a8f' };
 
-// Index = kill order = reading order. Row 2 is nearest the ship, so it is shot first.
+// Index = kill order = reading order. Row 2 is nearest the ship, so it goes first.
+// seg: pieces of the line; a piece with a URL becomes a link. dive: this one dives at the ship.
 const LINES = [
-  { t: 'TRAVIS PAIVARINTA',                          cls: 'name',  type: 'boss',      color: C.boss, row: 2, col: 1 },
-  { t: 'FOUNDER @ ESTIMATEKIT',                      cls: 'role',  type: 'butterfly', color: C.gold, row: 2, col: 0 },
-  { t: 'TECHNICAL SALES REP @ RITCHIE-SMITH',        cls: 'small', type: 'bee',       color: C.cyan, row: 2, col: 2 },
-  { t: 'DATA ANALYST @ RITCHIE-SMITH',               cls: 'small', type: 'bee',       color: C.cyan, row: 1, col: 0 },
-  { t: 'HEAD OF SOCIAL MEDIA, CANADA @ SPECIALIZED', cls: 'small', type: 'butterfly', color: C.gold, row: 1, col: 1 },
-  { t: 'RETAIL MANAGER @ SPECIALIZED',               cls: 'small', type: 'bee',       color: C.cyan, row: 1, col: 2 },
-  { t: 'UFV  |  ABBOTSFORD, BC',                     cls: 'small', type: 'butterfly', color: C.gold, row: 1, col: 3 },
-  { t: 'REACT / TYPESCRIPT',                         cls: 'tech',  type: 'butterfly', color: C.tech, row: 0, col: 0 },
-  { t: 'SUPABASE / POSTGRESQL',                      cls: 'tech',  type: 'bee',       color: C.tech, row: 0, col: 1 },
-  { t: 'STRIPE + CLOUDFLARE',                        cls: 'tech',  type: 'bee',       color: C.tech, row: 0, col: 3 },
-  { t: 'DENO / VITE',                                cls: 'tech',  type: 'butterfly', color: C.tech, row: 0, col: 4 },
-  { connect: true,                                                 type: 'boss',      color: C.boss, row: 0, col: 2 },
+  { seg: [['TRAVIS PAIVARINTA']],                                    cls: 'name',  type: 'boss',      color: C.boss, row: 2, col: 1 },
+  { seg: [['FOUNDER @ '], ['ESTIMATEKIT', URL_EK]],                  cls: 'role',  type: 'butterfly', color: C.gold, row: 2, col: 0, dive: true },
+  { seg: [['TECHNICAL SALES REP @ '], ['RITCHIE-SMITH', URL_RS]],    cls: 'small', type: 'bee',       color: C.cyan, row: 2, col: 2, dive: true },
+  { seg: [['DATA ANALYST @ '], ['RITCHIE-SMITH', URL_RS]],           cls: 'small', type: 'bee',       color: C.cyan, row: 1, col: 0 },
+  { seg: [['HEAD OF SOCIAL MEDIA, CANADA @ '], ['SPECIALIZED', URL_SP]], cls: 'small', type: 'butterfly', color: C.gold, row: 1, col: 1, dive: true },
+  { seg: [['RETAIL MANAGER @ '], ['SPECIALIZED', URL_SP]],           cls: 'small', type: 'bee',       color: C.cyan, row: 1, col: 2 },
+  { seg: [['UFV', URL_UFV], ['  |  ABBOTSFORD, BC']],                cls: 'small', type: 'butterfly', color: C.gold, row: 1, col: 3, dive: true },
+  { seg: [['REACT / TYPESCRIPT']],                                   cls: 'tech',  type: 'butterfly', color: C.tech, row: 0, col: 0 },
+  { seg: [['SUPABASE / POSTGRESQL']],                                cls: 'tech',  type: 'bee',       color: C.tech, row: 0, col: 1, dive: true },
+  { seg: [['STRIPE + CLOUDFLARE']],                                  cls: 'tech',  type: 'bee',       color: C.tech, row: 0, col: 3 },
+  { seg: [['DENO / VITE']],                                          cls: 'tech',  type: 'butterfly', color: C.tech, row: 0, col: 4, dive: true },
+  { connect: true,                                                                 type: 'boss',      color: C.boss, row: 0, col: 2, dive: true },
 ];
 const ROW_N = [5, 4, 3];
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-const bio = document.getElementById('bio');
+const bioEl = document.getElementById('bio');
+const linesEl = document.getElementById('lines');
 const connectEl = document.getElementById('connect');
 const promptEl = document.getElementById('prompt');
+const hudEl = document.getElementById('hud');
 const scoreEl = document.getElementById('score');
+const livesEl = document.getElementById('lives');
+const safeEl = document.getElementById('safe');
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // Bio lines are built from LINES so the enemies and the text can't drift apart.
 const lineEls = LINES.map(l => {
   if (l.connect) return connectEl;
   const d = document.createElement('div');
   d.className = 'bl ' + l.cls;
-  d.style.setProperty('--n', l.t.length);
-  d.setAttribute('aria-label', l.t);
-  bio.insertBefore(d, connectEl);
+  d.style.setProperty('--n', l.seg.reduce((n, s) => n + s[0].length, 0));
+  linesEl.insertBefore(d, connectEl);
   return d;
 });
 
@@ -176,14 +218,28 @@ function revealLine(i) {
   const el = lineEls[i], l = LINES[i];
   el.style.opacity = '1';
   if (l.connect) { el.classList.add('on'); return; }
-  [...l.t].forEach((ch, k) => {
-    const sp = document.createElement('span');
-    sp.className = 'ch';
-    sp.setAttribute('aria-hidden', 'true');
-    sp.style.animationDelay = (k * 34) + 'ms';
-    sp.textContent = ch === ' ' ? ' ' : ch;
-    el.appendChild(sp);
-  });
+  let k = 0;
+  for (const [text, href] of l.seg) {
+    let host = el;
+    if (href) {
+      host = document.createElement('a');
+      host.href = href; host.target = '_blank'; host.rel = 'noopener';
+      host.setAttribute('aria-label', text.trim() + ' website');
+      el.appendChild(host);
+    } else {
+      const sr = document.createElement('span');
+      sr.className = 'sr'; sr.textContent = text;
+      el.appendChild(sr);
+    }
+    for (const ch of text) {
+      const sp = document.createElement('span');
+      sp.className = 'ch';
+      sp.setAttribute('aria-hidden', 'true');
+      sp.style.animationDelay = (k++ * 34) + 'ms';
+      sp.textContent = ch === ' ' ? ' ' : ch;
+      host.appendChild(sp);
+    }
+  }
 }
 
 // Email shows the address itself (and copies it): works everywhere, no mail app needed.
@@ -205,31 +261,19 @@ let audioCtx = null;
 document.addEventListener('pointerdown', () => {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 }, { once: true });
-function tone(freq, dur, type = 'square', vol = 0.06) {
+function tone(freq, dur, type = 'square', vol = 0.06, slideTo = 0) {
   if (!audioCtx) return;
   try {
-    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-    o.type = type; o.frequency.value = freq;
-    g.gain.setValueAtTime(vol, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime;
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g); g.connect(audioCtx.destination);
-    o.start(); o.stop(audioCtx.currentTime + dur + 0.01);
+    o.start(); o.stop(t + dur + 0.02);
   } catch (e) {}
 }
-function boom(big) {
-  if (!audioCtx) return;
-  try {
-    const d = big ? 0.5 : 0.28;
-    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-    o.type = 'sawtooth';
-    o.frequency.setValueAtTime(big ? 300 : 380, audioCtx.currentTime);
-    o.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + d);
-    g.gain.setValueAtTime(0.09, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + d);
-    o.connect(g); g.connect(audioCtx.destination);
-    o.start(); o.stop(audioCtx.currentTime + d + 0.02);
-  } catch (e) {}
-}
+const boom = big => tone(big ? 300 : 380, big ? 0.5 : 0.28, 'sawtooth', 0.09, 40);
 
 const SPR = {
   bee: [
@@ -276,19 +320,26 @@ function drawSprite(spr, cx, cy, color, sc) {
   const cols = spr[0].length, rows = spr.length;
   const ox = Math.round(cx - cols * sc / 2), oy = Math.round(cy - rows * sc / 2);
   ctx.save();
-  ctx.shadowColor = color; ctx.shadowBlur = 10; ctx.fillStyle = color;
+  ctx.shadowColor = color; ctx.shadowBlur = sc * 3.3; ctx.fillStyle = color;
   for (let r = 0; r < rows; r++)
     for (let c = 0; c < cols; c++)
       if (spr[r][c]) ctx.fillRect(ox + c * sc, oy + r * sc, sc, sc);
   ctx.restore();
 }
 
+let SHIP_SVG = '<svg viewBox="0 0 7 6" aria-hidden="true">';
+SPR.ship.forEach((row, r) => row.forEach((v, c) => { if (v) SHIP_SVG += '<rect x="' + c + '" y="' + r + '" width="1.05" height="1.05"/>'; }));
+SHIP_SVG += '</svg>';
+
+// World. W/H are the screen in CSS pixels; G is the play area and its scale.
+// u is the size of one sprite pixel: everything in the game is measured in u.
 let W = 0, H = 0, dpr = 1;
+const G = { x: 0, w: 0, cx: 0, u: 3, bv: 14, ebv: 8, vmax: 8, shipY: 0 };
 
 const stars = Array.from({ length: 130 }, () => ({
-  u: Math.random(), y: Math.random() * 2000,
-  spd: 0.25 + Math.random() * 1.1,
-  sz: Math.random() < 0.72 ? 1 : 2,
+  u: Math.random(), v: Math.random(),
+  spd: (0.25 + Math.random() * 1.1) / 800,
+  big: Math.random() > 0.72,
   br: 0.25 + Math.random() * 0.65,
 }));
 
@@ -299,132 +350,345 @@ function bz(p, t) {
     y: u*u*u*p.p0.y + 3*u*u*t*p.p1.y + 3*u*t*t*p.p2.y + t*t*t*p.p3.y,
   };
 }
-function makePath(fx, fy, idx) {
+function entryPath(fx, fy, idx) {
   const s = idx % 2 === 0 ? 1 : -1;   // even ids swoop in from the left, odd from the right
-  const edge = s === 1 ? 0 : W;
+  const edge = s === 1 ? G.x : G.x + G.w;
   return {
-    p0: { x: edge + s * W * 0.08, y: -70 },
-    p1: { x: edge - s * 90,       y: H * 0.52 },
-    p2: { x: fx - s * W * 0.14,   y: fy + H * 0.38 },
+    p0: { x: edge + s * G.w * 0.08, y: -12 * G.u },
+    p1: { x: edge - s * Math.min(90, G.w * 0.25), y: H * 0.52 },
+    p2: { x: fx - s * G.w * 0.14, y: fy + H * 0.38 },
     p3: { x: fx, y: fy },
   };
 }
 
 const enemies = LINES.map((l, i) => ({
-  id: i, x: 0, y: -100, fx: 0, fy: 0, path: null,
-  t: 0, state: 'waiting', startAt: 40 + i * 26,
-  color: l.color, type: l.type, hov: i * 0.9,
-  sc: l.type === 'boss' ? 4 : 3,
+  id: i, x: 0, y: -1000, fx: 0, fy: 0, path: null,
+  t: 0, dt: 0, state: 'waiting', startAt: 40 + i * 26,
+  color: l.color, type: l.type, hov: i * 0.9, sc: 3,
+  hp: l.type === 'boss' ? 2 : 1, dived: false, shots: [],
 }));
-let bullets = [], particles = [];
-const ship = { x: 0, y: 0, vy: 0 };
-let frame = 0, score = 0, cooldown = 0, target = -1;
-let phase = 'entering'; // entering | shooting | done
+let bullets = [], ebullets = [], particles = [];
+const ship = { x: 0, y: 0, vy: 0, cd: 0, dead: false, respawn: 0, inv: 0 };
+let frame = 0, score = 0, lives = 3, target = -1, holdUntil = 0, fireIn = 70, doneAt = 0;
+let phase = 'entering'; // entering | battle | done
 
-function layout() {
-  const gapX = Math.min((W * 0.8) / 4, 86);
-  const rowGap = Math.max(38, Math.min(H * 0.065, 50));
-  const y0 = Math.max(H * 0.11, 72);
-  for (const e of enemies) {
-    const l = LINES[e.id];
-    e.fx = W / 2 + (l.col - (ROW_N[l.row] - 1) / 2) * gapX;
-    e.fy = y0 + l.row * rowGap;
-    e.path = makePath(e.fx, e.fy, e.id);
-    if (e.state === 'formed') e.x = e.fx;
-  }
+function renderLives() {
+  livesEl.innerHTML = SHIP_SVG.repeat(lives);
+  livesEl.setAttribute('aria-label', lives + (lives === 1 ? ' ship' : ' ships'));
+}
+renderLives();
+
+function px(n) { return parseFloat(n) || 0; }
+
+function geom(side, sT, sR, sB, sL) {
+  const gx = side ? sL : 0;
+  const gw = side ? Math.round((W - sL - sR) * 0.42) : W;
+  const u = clamp(Math.round(Math.min(gw / 110, H / 170)), 2, 10);
+  const y0 = hudEl.offsetTop + hudEl.offsetHeight + 7 * u;
+  const rowGap = 12 * u;
+  const shipY = H - Math.max(16, sB) - promptEl.offsetHeight - 8 - 4 * u;
+  return {
+    gx, gw, u, y0, rowGap, shipY,
+    zoneTop: y0 + 2 * rowGap + 4 * (u + 1) + u + 6,
+    zoneBottom: shipY - 5 * u - 6,
+  };
 }
 
-function nextTarget() {
-  return enemies.findIndex(e => e.state === 'formed');
+function layout() {
+  const first = W === 0;
+  const prev = { x: G.x, w: G.w || 1 };
+  W = canvas.clientWidth; H = canvas.clientHeight;
+  if (!W || !H) return;
+  dpr = Math.min(window.devicePixelRatio || 1, 3);
+  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const cs = getComputedStyle(safeEl);
+  const sT = px(cs.paddingTop), sR = px(cs.paddingRight), sB = px(cs.paddingBottom), sL = px(cs.paddingLeft);
+  const padL = Math.max(16, sL), padR = Math.max(16, sR);
+
+  // Try text under the formation first. If it can't fit and the screen is wide, go side by side.
+  document.body.classList.remove('side');
+  hudEl.style.left = '0px'; hudEl.style.width = W + 'px';
+  promptEl.style.left = '0px'; promptEl.style.width = W + 'px';
+  let g = geom(false, sT, sR, sB, sL);
+  bioEl.style.paddingLeft = padL + 'px'; bioEl.style.paddingRight = padR + 'px';
+  bioEl.style.paddingTop = g.zoneTop + 'px'; bioEl.style.paddingBottom = (H - g.zoneBottom) + 'px';
+  bioEl.style.setProperty('--avail', (W - padL - padR - 8) + 'px');
+  if (linesEl.offsetHeight > g.zoneBottom - g.zoneTop && W > H * 1.2) {
+    document.body.classList.add('side');
+    let gs = geom(true, sT, sR, sB, sL);
+    hudEl.style.left = gs.gx + 'px'; hudEl.style.width = gs.gw + 'px';
+    promptEl.style.left = gs.gx + 'px'; promptEl.style.width = gs.gw + 'px';
+    g = geom(true, sT, sR, sB, sL);   // again: the HUD may be a different height at this width
+    const left = g.gx + g.gw + 12;
+    bioEl.style.paddingLeft = left + 'px'; bioEl.style.paddingRight = padR + 'px';
+    bioEl.style.paddingTop = (sT + 8) + 'px'; bioEl.style.paddingBottom = (sB + 8) + 'px';
+    bioEl.style.setProperty('--avail', (W - left - padR - 8) + 'px');
+  }
+
+  G.x = g.gx; G.w = g.gw; G.cx = g.gx + g.gw / 2; G.u = g.u; G.shipY = g.shipY;
+  G.bv = Math.max(12, H * 0.022);      // ship shot speed, px per step
+  G.ebv = Math.max(3.5, H * 0.012);    // enemy shot speed
+  G.vmax = 2.6 * g.u;                  // ship top speed
+
+  const gapX = Math.min(g.gw * 0.84 / 4, 22 * g.u);
+  for (const e of enemies) {
+    const l = LINES[e.id];
+    e.sc = e.type === 'boss' ? g.u + 1 : g.u;
+    e.fx = G.cx + (l.col - (ROW_N[l.row] - 1) / 2) * gapX;
+    e.fy = g.y0 + l.row * g.rowGap;
+    if (e.state === 'formed') e.x = e.fx;
+    if (e.state === 'entering') e.path = entryPath(e.fx, e.fy, e.id);
+  }
+  ship.x = first ? G.cx : clamp(G.x + (ship.x - prev.x) * G.w / prev.w, G.x + 5 * G.u, G.x + G.w - 5 * G.u);
+  if (phase !== 'done') ship.y = G.shipY;
+}
+
+const alive = e => e.state !== 'dead';
+const hittable = e => e.state === 'formed' || e.state === 'diving';
+
+function burst(x, y, color, n, power) {
+  const pal = [color, '#ffffff', color, '#ffd27a'], k = G.u / 3;
+  for (let j = 0; j < n; j++) {
+    const a = Math.random() * Math.PI * 2, v = (0.5 + Math.random() * power) * k;
+    particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, dec: 0.018 + Math.random() * 0.02, color: pal[j % 4], sz: (0.7 + Math.random()) * G.u });
+  }
 }
 
 function kill(e) {
-  const big = e.type === 'boss';
+  const big = e.type === 'boss', diving = e.state === 'diving';
   e.state = 'dead';
-  const pal = [e.color, '#ffffff', e.color, '#ffd27a'];
-  for (let j = 0; j < (big ? 34 : 20); j++) {
-    const a = Math.random() * Math.PI * 2, v = 0.5 + Math.random() * (big ? 6 : 4.5);
-    particles.push({ x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, dec: 0.018 + Math.random() * 0.02, color: pal[j % 4], sz: 2 + Math.random() * 3 });
-  }
+  burst(e.x, e.y, e.color, big ? 34 : 20, big ? 6 : 4.5);
   revealLine(e.id);
-  score += big ? 500 : 150;
+  score += (big ? 500 : 150) * (diving ? 2 : 1);
   scoreEl.textContent = String(score).padStart(5, '0');
   boom(big);
-  cooldown = 8;
-  target = nextTarget();
+  target = enemies.findIndex(alive);
+  holdUntil = frame + 14;
   if (target === -1) {
-    phase = 'done';
+    phase = 'done'; doneAt = frame;
     [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.15, 'square', 0.07), 250 + i * 100));
+  }
+}
+
+function hitEnemy(e) {
+  if (--e.hp > 0) {            // bosses take two hits, and change colour after the first
+    e.color = C.hurt;
+    burst(e.x, e.y, '#ffffff', 8, 3);
+    tone(700, 0.08, 'square', 0.06);
+  } else kill(e);
+}
+
+function startDive(e) {
+  const u = G.u;
+  const dir = e.fx < G.cx - 1 ? -1 : e.fx > G.cx + 1 ? 1 : (e.id % 2 ? 1 : -1);
+  const keep = x => clamp(x, G.x + 5 * u, G.x + G.w - 5 * u);
+  e.path = {
+    p0: { x: e.x, y: e.y },
+    p1: { x: e.x + dir * 10 * u, y: e.y - 10 * u },                          // hop up and out
+    p2: { x: keep(ship.x + dir * Math.min(G.w * 0.3, 40 * u)), y: H * 0.55 }, // swing wide
+    p3: { x: keep(ship.x), y: H + 12 * u },                                   // through the ship
+  };
+  e.t = 0; e.dt = 1 / 130; e.state = 'diving'; e.dived = true; e.shots = [0.16, 0.3];
+  tone(900, 0.35, 'square', 0.04, 220);
+}
+
+const enemiesMayFire = () => phase === 'battle' && lives > 1 && !ship.dead;
+
+function enemyShoot(e) {
+  const vy = G.ebv, tt = Math.max(1, (ship.y - e.y) / vy);
+  const vx = clamp((ship.x - e.x) / tt, -vy * 0.4, vy * 0.4);
+  ebullets.push({ x: e.x, y: e.y + 4 * e.sc, vx, vy });
+  tone(240, 0.06, 'square', 0.03);
+}
+
+// Where a shot fired right now would meet this enemy. The dive path is known, so this is exact.
+function intercept(e) {
+  if (e.state === 'formed') return { x: e.fx, t: 1 };
+  if (e.state !== 'diving') return null;
+  const y0 = ship.y - 4 * G.u;
+  for (let k = 1; k < 160; k++) {
+    const t = e.t + k * e.dt;
+    if (t >= 1) return null;
+    const p = bz(e.path, t), by = y0 - G.bv * k;
+    if (by <= p.y) return p.y > 0 && p.y < ship.y - 10 * G.u ? { x: p.x, t } : null;
+  }
+  return null;
+}
+
+function shipHit() {
+  lives--; renderLives();
+  burst(ship.x, ship.y, C.ship, 30, 6);
+  boom(true);
+  ship.dead = true; ship.respawn = 70;
+}
+
+function updateShip() {
+  const u = G.u;
+  if (ship.dead) {
+    if (--ship.respawn <= 0) { ship.dead = false; ship.x = G.cx; ship.inv = 110; }
+    return;
+  }
+  if (ship.inv > 0) ship.inv--;
+  if (phase === 'done') {
+    if (frame - doneAt > 30 && ship.y > -20 * u) { ship.vy += 0.12 * u; ship.y -= ship.vy; }
+    return;
+  }
+
+  const tg = target >= 0 ? enemies[target] : null;
+  const I = tg ? intercept(tg) : null;
+  const aim = I ? I.x : tg && tg.state !== 'diving' ? tg.fx : ship.x;
+
+  // Hazards: for each enemy shot and dive-bomber, the stretch of the ship's row it will sweep
+  // (l..r) and when (t0..t1, in steps from now). The ship plans its move around all of them.
+  const hz = [], vh = 4.2 * u;
+  for (const b of ebullets) {
+    const t0 = (ship.y - vh - b.y) / b.vy - 1, t1 = (ship.y + vh - b.y) / b.vy + 1;
+    if (t1 < 0 || t0 > 70) continue;
+    const xa = b.x + b.vx * Math.max(0, t0), xb = b.x + b.vx * Math.max(0, t1);
+    hz.push({ l: Math.min(xa, xb) - 5.5 * u, r: Math.max(xa, xb) + 5.5 * u, t0: Math.max(0, t0), t1 });
+  }
+  for (const e of enemies) {
+    if (e.state !== 'diving') continue;
+    const reach = 4 * u + 3.2 * e.sc;
+    let k0 = -1, k1 = -1, xl = Infinity, xr = -Infinity;
+    for (let k = 0; k <= 70; k += 2) {
+      const t = e.t + k * e.dt;
+      if (t >= 1) break;
+      const p = bz(e.path, t);
+      if (Math.abs(p.y - ship.y) < reach) { if (k0 < 0) k0 = k; k1 = k; xl = Math.min(xl, p.x); xr = Math.max(xr, p.x); }
+    }
+    if (k0 >= 0) hz.push({ l: xl - reach - 1.5 * u, r: xr + reach + 1.5 * u, t0: Math.max(0, k0 - 2), t1: k1 + 2 });
+  }
+
+  // Score each place the ship could head for: close to the firing spot is good, and being
+  // inside a hazard's stretch at any moment on the way there (or once there) rules it out.
+  const lo = G.x + 5 * u, hi = G.x + G.w - 5 * u;
+  let best = clamp(ship.x, lo, hi), bestCost = Infinity;
+  const cost = x => {
+    const dist = Math.abs(x - ship.x), dir = Math.sign(x - ship.x);
+    let c = Math.abs(x - aim) + 0.15 * dist;
+    const arrive = dist / G.vmax;
+    for (const h of hz) {
+      if (h.t0 > arrive + 10) continue;   // far enough off: the ship can take its shot and step aside later
+      const a = ship.x + dir * Math.min(dist, G.vmax * h.t0), b = ship.x + dir * Math.min(dist, G.vmax * h.t1);
+      if (Math.max(Math.min(a, b), h.l) <= Math.min(Math.max(a, b), h.r)) c += 1e4 * (1 + 8 / (1 + h.t0));
+    }
+    return c;
+  };
+  const tryX = x => { x = clamp(x, lo, hi); const c = cost(x); if (c < bestCost) { bestCost = c; best = x; } };
+  tryX(aim); tryX(ship.x);
+  for (const h of hz) { tryX(h.l - 1); tryX(h.r + 1); }
+  for (let i = 0; i <= 48; i++) tryX(lo + (hi - lo) * i / 48);
+  ship.x += clamp(best - ship.x, -G.vmax, G.vmax);
+
+  // Only fire a shot that is sure to land: no strays flying through the formation.
+  ship.cd--;
+  if (phase === 'battle' && tg && I && ship.cd <= 0 && frame >= holdUntil) {
+    const pending = bullets.filter(b => b.tid === tg.id).length;
+    const committed = tg.state !== 'diving' || I.t >= 0.38;
+    const waitsToDive = tg.state === 'formed' && LINES[tg.id].dive && !tg.dived;
+    if (pending < tg.hp && committed && !waitsToDive && Math.abs(ship.x - I.x) <= 1.6 * u) {
+      bullets.push({ x: ship.x, y: ship.y - 4 * u, tid: tg.id });
+      ship.cd = 12;
+      tone(1100, 0.04, 'square', 0.05);
+    }
   }
 }
 
 function update() {
   frame++;
-  for (const s of stars) { s.y += s.spd; if (s.y > H + 2) { s.y = -2; s.u = Math.random(); } }
+  const u = G.u;
+  for (const s of stars) { s.v += s.spd; if (s.v > 1.01) { s.v = -0.01; s.u = Math.random(); } }
 
-  let allFormed = true;
   for (const e of enemies) {
     if (e.state === 'dead') continue;
     if (e.state === 'waiting') {
-      allFormed = false;
-      if (frame >= e.startAt) { e.state = 'entering'; e.t = 0; }
+      if (frame >= e.startAt) { e.state = 'entering'; e.t = 0; e.path = entryPath(e.fx, e.fy, e.id); }
       continue;
     }
     if (e.state === 'entering') {
-      allFormed = false;
       e.t += 0.016;
-      if (e.t >= 1) {
-        e.state = 'formed'; e.x = e.fx; e.y = e.fy;
-        tone(440 + e.id * 55, 0.07);
-      } else {
+      if (e.t >= 1) { e.state = 'formed'; e.x = e.fx; e.y = e.fy; tone(440 + e.id * 55, 0.07); }
+      else { const p = bz(e.path, e.t); e.x = p.x; e.y = p.y; }
+    } else if (e.state === 'diving') {
+      e.t += e.dt;
+      if (e.t >= 1) { e.state = 'entering'; e.t = 0; e.path = entryPath(e.fx, e.fy, e.id); }   // missed: loop back in
+      else {
         const p = bz(e.path, e.t); e.x = p.x; e.y = p.y;
+        if (e.shots.length && e.t >= e.shots[0]) { e.shots.shift(); if (enemiesMayFire()) enemyShoot(e); }
       }
     }
-    if (e.state === 'formed') { e.hov += 0.028; e.y = e.fy + Math.sin(e.hov) * 3; }
+    if (e.state === 'formed') { e.hov += 0.028; e.y = e.fy + Math.sin(e.hov) * u; }
   }
 
-  if (allFormed && phase === 'entering') {
-    phase = 'shooting'; target = nextTarget(); cooldown = 40;
+  // The fight starts as soon as the front row is in place; the back rows keep flying in.
+  if (phase === 'entering' && enemies.slice(0, ROW_N[2]).every(e => e.state === 'formed')) {
+    phase = 'battle'; target = 0; holdUntil = frame + 30;
+    promptEl.style.animation = 'none';   // the blink animation would otherwise keep it visible
     promptEl.style.opacity = '0';
   }
 
-  if (phase === 'shooting' && target >= 0) {
+  if (phase === 'battle') {
     const tg = enemies[target];
-    ship.x += (tg.fx - ship.x) * 0.14;
-    cooldown--;
-    if (cooldown <= 0 && bullets.length === 0 && Math.abs(ship.x - tg.fx) < 12) {
-      bullets.push({ x: ship.x, y: ship.y - 12 });
-      tone(1100, 0.04, 'square', 0.05);
+    if (tg && tg.state === 'formed' && LINES[tg.id].dive && !tg.dived && frame >= holdUntil && !ship.dead) startDive(tg);
+
+    // Formation fire: only an enemy with nobody in front of it shoots.
+    if (--fireIn <= 0) {
+      fireIn = 45 + Math.random() * 55;
+      if (enemiesMayFire()) {
+        const formed = enemies.filter(e => e.state === 'formed');
+        const front = formed.filter(e => !formed.some(o => o !== e && o.fy > e.fy && Math.abs(o.fx - e.fx) < 16 * u));
+        if (front.length) enemyShoot(front[Math.floor(Math.random() * front.length)]);
+      }
     }
   }
-  if (phase === 'done' && ship.y > -60) { ship.vy += 0.35; ship.y -= ship.vy; }
 
-  const bv = Math.max(14, H * 0.022);
+  // Ship shots (each belongs to the enemy it was fired at)
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
-    b.y -= bv;
-    const tg = target >= 0 ? enemies[target] : null;
-    if (tg && tg.state === 'formed' && b.y <= tg.y + 10 && Math.abs(b.x - tg.x) < 24) {
-      bullets.splice(i, 1); kill(tg);
-    } else if (b.y < -20) {
-      bullets.splice(i, 1);
-    }
+    b.y -= G.bv;
+    const e = enemies[b.tid];
+    if (e && hittable(e) && Math.abs(b.x - e.x) <= 4.5 * e.sc + 1 && b.y <= e.y + 4 * e.sc && b.y >= e.y - 4 * e.sc - G.bv) {
+      bullets.splice(i, 1); hitEnemy(e);
+    } else if (b.y < -20) bullets.splice(i, 1);
   }
+
+  // Enemy shots and dive-bombers against the ship
+  const exposed = phase === 'battle' && !ship.dead && ship.inv <= 0 && lives > 1;
+  for (let i = ebullets.length - 1; i >= 0; i--) {
+    const b = ebullets[i];
+    b.x += b.vx; b.y += b.vy;
+    if (exposed && !ship.dead && Math.abs(b.x - ship.x) < 4 * u && Math.abs(b.y - ship.y) < 4.2 * u) {
+      ebullets.splice(i, 1); shipHit();
+    } else if (b.y > H + 20) ebullets.splice(i, 1);
+  }
+  if (exposed && !ship.dead)
+    for (const e of enemies)
+      if (e.state === 'diving' && Math.abs(e.x - ship.x) < 3.5 * u + 3.2 * e.sc && Math.abs(e.y - ship.y) < 3 * u + 3.2 * e.sc) {
+        shipHit(); kill(e); break;
+      }
+
+  updateShip();
 
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
-    p.x += p.vx; p.y += p.vy; p.vy += 0.07; p.life -= p.dec;
+    p.x += p.vx; p.y += p.vy; p.vy += 0.023 * u; p.life -= p.dec;
     if (p.life <= 0) particles.splice(i, 1);
   }
 }
 
 function draw() {
+  const u = G.u;
   ctx.fillStyle = '#05050f';
   ctx.fillRect(0, 0, W, H);
 
+  const s1 = u >= 6 ? 2 : 1;
   for (const s of stars) {
     ctx.fillStyle = 'rgba(255,255,255,' + s.br + ')';
-    ctx.fillRect(Math.round(s.u * W), Math.round(s.y), s.sz, s.sz);
+    const sz = (s.big ? 2 : 1) * s1;
+    ctx.fillRect(Math.round(s.u * W), Math.round(s.v * H), sz, sz);
   }
 
   for (const e of enemies) {
@@ -434,8 +698,10 @@ function draw() {
   }
 
   ctx.save();
-  ctx.shadowColor = '#ffffaa'; ctx.shadowBlur = 7; ctx.fillStyle = '#ffffaa';
-  for (const b of bullets) ctx.fillRect(Math.round(b.x - 1.5), Math.round(b.y - 5), 3, 10);
+  ctx.shadowColor = C.shot; ctx.shadowBlur = u * 2.3; ctx.fillStyle = C.shot;
+  for (const b of bullets) ctx.fillRect(Math.round(b.x - u / 2), Math.round(b.y - 1.7 * u), u, Math.round(3.4 * u));
+  ctx.shadowColor = C.eshot; ctx.fillStyle = C.eshot;
+  for (const b of ebullets) ctx.fillRect(Math.round(b.x - u / 2), Math.round(b.y - 1.25 * u), u, Math.round(2.5 * u));
   ctx.restore();
 
   for (const p of particles) {
@@ -445,14 +711,15 @@ function draw() {
   }
   ctx.globalAlpha = 1;
 
-  if (ship.y > -50) {
-    const fh = (phase === 'done' ? 12 : 4) + Math.random() * 7;
+  const blink = ship.inv > 0 && frame % 8 < 4;
+  if (!ship.dead && !blink && ship.y > -12 * u) {
+    const fh = ((phase === 'done' ? 4 : 1.3) + Math.random() * 2.3) * u;
     ctx.save();
-    ctx.shadowColor = '#ff7700'; ctx.shadowBlur = 8;
+    ctx.shadowColor = '#ff7700'; ctx.shadowBlur = u * 2.6;
     ctx.fillStyle = 'rgba(255,' + (100 + Math.random() * 80 | 0) + ',0,0.85)';
-    ctx.fillRect(Math.round(ship.x - 2), Math.round(ship.y + 9), 4, fh);
+    ctx.fillRect(Math.round(ship.x - u * 0.67), Math.round(ship.y + 3 * u), Math.round(u * 1.34), fh);
     ctx.restore();
-    drawSprite(SPR.ship, ship.x, ship.y, C.ship, 3);
+    drawSprite(SPR.ship, ship.x, ship.y, C.ship, u);
   }
 }
 
@@ -467,19 +734,13 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
-function resize() {
-  const first = W === 0;
-  dpr = window.devicePixelRatio || 1;
-  W = window.innerWidth; H = window.innerHeight;
-  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  layout();
-  if (first) ship.x = W / 2;
-  if (phase !== 'done') ship.y = H - 55;
-}
-
-window.addEventListener('resize', resize);
-resize();
+let relayout = 0;
+function onResize() { cancelAnimationFrame(relayout); relayout = requestAnimationFrame(layout); }
+window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', onResize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(onResize);
+layout();
 requestAnimationFrame(loop);
 </script>
 </body>
