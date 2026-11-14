@@ -29,13 +29,15 @@ html, body {
   width: 100%; height: 100%; overflow: hidden;
   overscroll-behavior: none; touch-action: manipulation;
   -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
-  -webkit-tap-highlight-color: transparent;
+  -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+  -webkit-user-select: none; user-select: none;   /* dragging steers the ship; it must not select text */
   background: var(--bg); color: var(--w);
   font-family: 'Press Start 2P', ui-monospace, Menlo, monospace;
 }
 
 /* Explicit CSS size: without it a canvas shows at its pixel size, 2-3x too big on dense screens. */
-#canvas { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+#canvas { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: block; touch-action: pinch-zoom; }   /* one-finger drags reach the game; two-finger zoom still works */
+[hidden] { display: none !important; }
 
 #scanlines {
   position: fixed; inset: 0;
@@ -132,10 +134,20 @@ html, body {
   position: fixed; left: 0; width: 100%;
   bottom: max(16px, env(safe-area-inset-bottom, 0px));
   text-align: center; font-size: clamp(7px, 1vh, 16px); letter-spacing: 0.14em;
-  color: var(--w18); pointer-events: none; z-index: 15;
-  animation: blink 1.1s step-end infinite; transition: opacity 0.6s;
+  line-height: 1.2; min-height: 1.2em;   /* keeps its height when empty: the ship is placed above it */
+  color: var(--w55); pointer-events: none; z-index: 15;
+  animation: blink 1.1s step-end infinite;
 }
+#prompt.steady { animation: none; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+#again {
+  position: fixed; left: var(--foot-cx, 50%); transform: translateX(-50%);
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  font-size: clamp(7px, min(1.3vw, 1.35vh), 32px);
+  opacity: 1; z-index: 15; user-select: none; -webkit-user-select: none;
+}
+#again:active { transform: translate(calc(-50% + 2px), 2px); }
 
 /* Short, wide screens (a phone on its side): game on the left, text on the right. */
 body.side #hud { padding-left: 12px; padding-right: 12px; }
@@ -166,7 +178,8 @@ body.side #lines { gap: clamp(3px, 1.1vh, 12px); }
     </div>
   </div>
 </div>
-<div id="prompt">STAGE  1  READY</div>
+<div id="prompt" aria-live="polite"></div>
+<button class="btn" id="again" type="button" hidden>PLAY AGAIN</button>
 
 <script>
 const EMAIL = 'travisjustinp@gmail.com';
@@ -209,7 +222,9 @@ const hudEl = document.getElementById('hud');
 const scoreEl = document.getElementById('score');
 const livesEl = document.getElementById('lives');
 const safeEl = document.getElementById('safe');
+const againEl = document.getElementById('again');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const touchFirst = window.matchMedia && matchMedia('(pointer: coarse)').matches;
 
 // Bio lines are built from LINES so the enemies and the text can't drift apart.
 const lineEls = LINES.map(l => {
@@ -263,11 +278,11 @@ emailBtn.addEventListener('click', async () => {
   }
 });
 
-// Audio (starts on first tap or click)
+// Audio (starts on the first tap, click or key press)
 let audioCtx = null;
-document.addEventListener('pointerdown', () => {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-}, { once: true });
+const startAudio = () => { if (!audioCtx) try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} };
+document.addEventListener('pointerdown', startAudio, { once: true });
+document.addEventListener('keydown', startAudio, { once: true });
 function tone(freq, dur, type = 'square', vol = 0.06, slideTo = 0) {
   if (!audioCtx) return;
   try {
@@ -379,6 +394,22 @@ const ship = { x: 0, y: 0, vy: 0, cd: 0, dead: false, respawn: 0, inv: 0 };
 let frame = 0, score = 0, lives = 3, target = -1, holdUntil = 0, fireIn = 70, doneAt = 0;
 let phase = 'entering'; // entering | battle | done
 
+// Who is flying. The page plays itself until a visitor presses a key or drags; it takes the
+// ship back if they go quiet, and finishes the run for them if they lose every ship.
+let manual = false, gameOver = false, lastInput = 0, diveIn = 0;
+const keys = new Set();                       // 'left' | 'right' | 'fire'
+const pointer = { down: false, id: -1, x: 0 };
+
+function updatePrompt() {
+  let text = '';
+  if (phase !== 'done') {
+    if (gameOver) text = 'GAME OVER';
+    else if (!manual) text = touchFirst ? 'DRAG TO PLAY' : 'ARROWS + SPACE TO PLAY';
+  }
+  promptEl.textContent = text;
+  promptEl.classList.toggle('steady', gameOver);
+}
+
 function renderLives() {
   livesEl.innerHTML = SHIP_SVG.repeat(lives);
   livesEl.setAttribute('aria-label', lives + (lives === 1 ? ' ship' : ' ships'));
@@ -435,6 +466,7 @@ function layout() {
   }
 
   G.x = g.gx; G.w = g.gw; G.cx = g.gx + g.gw / 2; G.u = g.u; G.shipY = g.shipY;
+  document.documentElement.style.setProperty('--foot-cx', G.cx + 'px');
   G.bv = Math.max(12, H * 0.022);      // ship shot speed, px per step
   G.ebv = Math.max(3.5, H * 0.012);    // enemy shot speed
   G.vmax = 2.6 * g.u;                  // ship top speed
@@ -454,6 +486,9 @@ function layout() {
 
 const alive = e => e.state !== 'dead';
 const hittable = e => e.state === 'formed' || e.state === 'diving';
+const shootable = e => hittable(e) || (e.state === 'entering' && e.y > 0);   // a player can also pick them off on the way in
+// The last boss carries the contact buttons, so it can't be shot until everything else is down.
+const shielded = e => !!LINES[e.id].connect && enemies.some(o => o !== e && alive(o));
 
 function burst(x, y, color, n, power) {
   const pal = [color, '#ffffff', color, '#ffd27a'], k = G.u / 3;
@@ -475,6 +510,7 @@ function kill(e) {
   holdUntil = frame + 14;
   if (target === -1) {
     phase = 'done'; doneAt = frame;
+    manual = false; keys.clear(); pointer.down = false; updatePrompt();
     [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.15, 'square', 0.07), 250 + i * 100));
   }
 }
@@ -501,7 +537,9 @@ function startDive(e) {
   tone(900, 0.35, 'square', 0.04, 220);
 }
 
-const enemiesMayFire = () => phase === 'battle' && lives > 1 && !ship.dead;
+// On autopilot the last ship is never put at risk, so the run always finishes. A player gets no such favour.
+const atRisk = () => manual || lives > 1;
+const enemiesMayFire = () => phase === 'battle' && atRisk() && !ship.dead;
 
 function enemyShoot(e) {
   const vy = G.ebv, tt = Math.max(1, (ship.y - e.y) / vy);
@@ -529,6 +567,57 @@ function shipHit() {
   burst(ship.x, ship.y, C.ship, 30, 6);
   boom(true);
   ship.dead = true; ship.respawn = 70;
+  if (lives <= 0) {            // out of ships: the autopilot flies the rest so the bio still completes
+    gameOver = true; manual = false; keys.clear(); pointer.down = false;
+    updatePrompt();
+  }
+}
+
+function takeOver() {
+  if (gameOver || phase === 'done') return;
+  lastInput = frame;
+  if (!manual) { manual = true; diveIn = 80; updatePrompt(); }
+}
+
+function flyManual() {
+  const u = G.u, lo = G.x + 5 * u, hi = G.x + G.w - 5 * u;
+  let dx = 0;
+  if (keys.has('left')) dx -= G.vmax * 0.85;
+  if (keys.has('right')) dx += G.vmax * 0.85;
+  if (pointer.down) dx = clamp(pointer.x - ship.x, -G.vmax, G.vmax);
+  ship.x = clamp(ship.x + dx, lo, hi);
+
+  ship.cd--;
+  const holding = keys.size > 0 || pointer.down;
+  if ((keys.has('fire') || pointer.down) && ship.cd <= 0 && bullets.filter(b => b.tid < 0).length < 2) {
+    bullets.push({ x: ship.x, y: ship.y - 4 * u, tid: -1 });
+    ship.cd = 10;
+    tone(1100, 0.04, 'square', 0.05);
+  }
+  if (holding) lastInput = frame;
+  else if (frame - lastInput > 120) { manual = false; updatePrompt(); }   // two quiet seconds: autopilot again
+}
+
+function restart() {
+  againEl.hidden = true;
+  lineEls.forEach((el, i) => {
+    el.style.opacity = '0';
+    if (LINES[i].connect) el.classList.remove('on'); else el.textContent = '';
+  });
+  emailBtn.textContent = 'EMAIL';
+  enemies.forEach((e, i) => Object.assign(e, {
+    state: 'waiting', t: 0, y: -1000, hp: e.type === 'boss' ? 2 : 1,
+    dived: false, shots: [], color: LINES[i].color, hov: i * 0.9,
+  }));
+  bullets = []; ebullets = []; particles = [];
+  frame = 0; score = 0; lives = 3; target = -1; holdUntil = 0; fireIn = 70; doneAt = 0;
+  phase = 'entering'; gameOver = false;
+  Object.assign(ship, { x: G.cx, y: G.shipY, vy: 0, cd: 0, dead: false, respawn: 0, inv: 0 });
+  scoreEl.textContent = '00000';
+  renderLives();
+  keys.clear(); pointer.down = false;
+  manual = true; lastInput = 0; diveIn = 80;   // they asked to play: start them in control
+  updatePrompt();
 }
 
 function updateShip() {
@@ -542,6 +631,7 @@ function updateShip() {
     if (frame - doneAt > 30 && ship.y > -20 * u) { ship.vy += 0.12 * u; ship.y -= ship.vy; }
     return;
   }
+  if (manual) { flyManual(); return; }
 
   const tg = target >= 0 ? enemies[target] : null;
   const I = tg ? intercept(tg) : null;
@@ -631,15 +721,21 @@ function update() {
   }
 
   // The fight starts as soon as the front row is in place; the back rows keep flying in.
-  if (phase === 'entering' && enemies.slice(0, ROW_N[2]).every(e => e.state === 'formed')) {
-    phase = 'battle'; target = 0; holdUntil = frame + 30;
-    promptEl.style.animation = 'none';   // the blink animation would otherwise keep it visible
-    promptEl.style.opacity = '0';
+  if (phase === 'entering' && enemies.slice(0, ROW_N[2]).every(e => e.state === 'formed' || e.state === 'dead')) {
+    phase = 'battle'; target = enemies.findIndex(alive); holdUntil = frame + 30;
   }
 
   if (phase === 'battle') {
     const tg = enemies[target];
-    if (tg && tg.state === 'formed' && LINES[tg.id].dive && !tg.dived && frame >= holdUntil && !ship.dead) startDive(tg);
+    if (manual) {
+      // With a player flying, enemies keep coming: every couple of seconds one peels off and dives.
+      if (--diveIn <= 0) {
+        diveIn = 110 + Math.random() * 90;
+        const pool = enemies.filter(e => e.state === 'formed' && !shielded(e));
+        if (pool.length && !ship.dead && enemies.filter(e => e.state === 'diving').length < 2)
+          startDive(pool[Math.floor(Math.random() * pool.length)]);
+      }
+    } else if (tg && tg.state === 'formed' && LINES[tg.id].dive && !tg.dived && frame >= holdUntil && !ship.dead) startDive(tg);
 
     // Formation fire: only an enemy with nobody in front of it shoots.
     if (--fireIn <= 0) {
@@ -652,18 +748,25 @@ function update() {
     }
   }
 
-  // Ship shots (each belongs to the enemy it was fired at)
+  // Ship shots. An autopilot shot belongs to the enemy it was fired at (tid); a player's shot
+  // (tid -1) hits whatever it reaches first.
+  const touches = (b, e) => Math.abs(b.x - e.x) <= 4.5 * e.sc + 1 && b.y <= e.y + 4 * e.sc && b.y >= e.y - 4 * e.sc - G.bv;
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     b.y -= G.bv;
-    const e = enemies[b.tid];
-    if (e && hittable(e) && Math.abs(b.x - e.x) <= 4.5 * e.sc + 1 && b.y <= e.y + 4 * e.sc && b.y >= e.y - 4 * e.sc - G.bv) {
-      bullets.splice(i, 1); hitEnemy(e);
+    const own = b.tid >= 0 ? enemies[b.tid] : null;
+    const e = own ? (hittable(own) && touches(b, own) ? own : null) : enemies.find(o => shootable(o) && touches(b, o));
+    if (e) {
+      bullets.splice(i, 1);
+      if (!own && shielded(e)) { burst(b.x, b.y, '#ffffff', 5, 2); tone(160, 0.06, 'square', 0.05); }   // bounces off
+      else hitEnemy(e);
     } else if (b.y < -20) bullets.splice(i, 1);
   }
 
+  if (phase === 'done' && againEl.hidden && frame - doneAt > 110) againEl.hidden = false;
+
   // Enemy shots and dive-bombers against the ship
-  const exposed = phase === 'battle' && !ship.dead && ship.inv <= 0 && lives > 1;
+  const exposed = phase === 'battle' && !ship.dead && ship.inv <= 0 && atRisk();
   for (let i = ebullets.length - 1; i >= 0; i--) {
     const b = ebullets[i];
     b.x += b.vx; b.y += b.vy;
@@ -747,6 +850,37 @@ window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', onResize);
 if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(onResize);
+
+// Controls. Arrow keys or A/D steer and Space fires; on a touch screen, drag to steer and the
+// ship fires while your finger is down. Links and buttons keep their own taps and key presses.
+const KEYMAP = { ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right', ' ': 'fire', ArrowUp: 'fire', w: 'fire', W: 'fire' };
+const onControl = e => !!(e.target && e.target.closest && e.target.closest('a, button'));
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (phase === 'done') {
+    if ((e.key === ' ' || e.key === 'Enter') && !onControl(e) && !againEl.hidden) { e.preventDefault(); restart(); }
+    return;
+  }
+  const k = KEYMAP[e.key];
+  if (!k || (k === 'fire' && onControl(e))) return;
+  e.preventDefault();
+  if (gameOver) return;
+  keys.add(k); takeOver();
+});
+document.addEventListener('keyup', e => { keys.delete(KEYMAP[e.key]); });
+window.addEventListener('blur', () => { keys.clear(); pointer.down = false; });
+document.addEventListener('pointerdown', e => {
+  if (onControl(e) || (e.pointerType === 'mouse' && e.button !== 0) || gameOver || phase === 'done') return;
+  pointer.down = true; pointer.id = e.pointerId; pointer.x = e.clientX;
+  takeOver();
+});
+document.addEventListener('pointermove', e => { if (pointer.down && e.pointerId === pointer.id) pointer.x = e.clientX; });
+const pointerEnd = e => { if (e.pointerId === pointer.id) pointer.down = false; };
+document.addEventListener('pointerup', pointerEnd);
+document.addEventListener('pointercancel', pointerEnd);
+againEl.addEventListener('click', restart);
+
+updatePrompt();
 layout();
 requestAnimationFrame(loop);
 </script>
