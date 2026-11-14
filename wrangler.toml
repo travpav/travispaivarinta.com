@@ -1,0 +1,9 @@
+name = "travispaivarinta-com"
+pages_build_output_dir = "public"
+compatibility_date = "2026-10-01"
+
+# Arcade leaderboard scores (see schema.sql and functions/api/scores.js)
+[[d1_databases]]
+binding = "DB"
+database_name = "travispaivarinta-scores"
+database_id = "a034f197-5548-44d6-b223-3b0b64d6a5bf"

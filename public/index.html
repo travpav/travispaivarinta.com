@@ -21,7 +21,10 @@
   --w35: rgba(255,255,255,0.35);
   --w18: rgba(255,255,255,0.18);
   --tech: #39ff14;
-  --tech-glow: rgba(57,255,20,0.3);  --scan: rgba(0,0,0,0.08);
+  --tech-glow: rgba(57,255,20,0.3);
+  --boss: #ff4466;
+  --boss-glow: rgba(255,68,102,0.45);
+  --scan: rgba(0,0,0,0.08);
   color-scheme: dark;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -149,6 +152,55 @@ html, body {
 }
 #again:active { transform: translate(calc(-50% + 2px), 2px); }
 
+/* Top-bar button: starts the arcade game, or goes back to the bio. */
+#hud > div { flex: 1 1 0; min-width: 0; white-space: nowrap; }
+#modeBtn {
+  position: relative; flex: none; align-self: center;
+  opacity: 1; pointer-events: auto; min-height: 0; white-space: nowrap;
+  padding: 0.75em 0.9em; letter-spacing: 0.04em;
+  font-size: clamp(7px, min(1.9vw, 1.1vh), 18px);
+  box-shadow: 0.25em 0.25em 0 var(--w35);
+  user-select: none; -webkit-user-select: none;
+}
+#modeBtn::after { content: ""; position: absolute; inset: -9px -6px; }   /* bigger tap target */
+
+/* Arcade mode: no bio, just the game. */
+body.arcade #bio, body.arcade #again { display: none; }
+
+#over {
+  position: fixed; inset: 0; z-index: 16;
+  display: flex; flex-direction: column; align-items: center; gap: clamp(8px, 1.5vh, 18px);
+  padding-top: calc(max(10px, env(safe-area-inset-top, 0px)) + 56px);
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: rgba(5,5,15,0.82); text-align: center; overflow-y: auto;
+  font-size: clamp(8px, min(2.2vw, 1.5vh), 18px); line-height: 1.7;
+}
+#over::before, #over::after { content: ""; flex: 1 0 0; }   /* centred when it fits, scrolls from the top when it doesn't */
+#over h2 { font-size: 2em; font-weight: normal; color: var(--boss); text-shadow: 0 0 12px var(--boss-glow); }
+#over .btn { opacity: 1; user-select: none; -webkit-user-select: none; }
+#overScore { color: var(--w); }
+#overBest, #overMsg { color: var(--w55); min-height: 1.7em; }
+#nameForm { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.9em; }
+#nameForm label { flex-basis: 100%; color: var(--w75); }
+#initials {
+  font: inherit; font-size: max(16px, 1.4em);   /* 16px or more, or iPhones zoom the page on focus */
+  width: 5.2em; padding: 0.55em 0.3em 0.55em 0.5em; text-align: center; letter-spacing: 0.3em; text-transform: uppercase;
+  color: var(--w); background: var(--bg); border: max(2px, 0.15em) solid var(--w); border-radius: 0;
+  -webkit-user-select: text; user-select: text; outline: none;
+}
+#initials:focus-visible { border-color: var(--tech); }
+#boardTitle { color: var(--w55); letter-spacing: 0.14em; }
+#board { list-style: none; width: min(100%, 27em); display: grid; gap: 0.15em; }
+#board li { display: grid; grid-template-columns: 2.6em 4em 1fr 4.6em; color: var(--w75); text-align: left; }
+#board li span:nth-child(3) { text-align: right; }
+#board li span:nth-child(4) { text-align: right; color: var(--w35); }
+#board li.me { color: var(--tech); text-shadow: 0 0 8px var(--tech-glow); }
+#board li.me span:nth-child(4) { color: var(--tech); }
+#board li.note { display: block; text-align: center; color: var(--w55); }
+#overBtns { display: flex; flex-wrap: wrap; justify-content: center; gap: max(10px, 1em); margin-top: 0.4em; }
+
 /* Short, wide screens (a phone on its side): game on the left, text on the right. */
 body.side #hud { padding-left: 12px; padding-right: 12px; }
 body.side #lines { gap: clamp(3px, 1.1vh, 12px); }
@@ -165,8 +217,8 @@ body.side #lines { gap: clamp(3px, 1.1vh, 12px); }
 <div id="scanlines"></div>
 <div id="safe"></div>
 <div id="hud">
-  <div><small>SCORE</small><span id="score">00000</span></div>
-  <div style="text-align:center"><small>STAGE</small><span>1</span></div>
+  <div><small id="scoreLabel">SCORE</small><span id="score">00000</span></div>
+  <button class="btn" id="modeBtn" type="button">JUST PLAY THE GAME</button>
   <div style="text-align:right"><small>SHIPS</small><span id="lives" role="img" aria-label="3 ships"></span></div>
 </div>
 <div id="bio">
@@ -180,6 +232,24 @@ body.side #lines { gap: clamp(3px, 1.1vh, 12px); }
 </div>
 <div id="prompt" aria-live="polite"></div>
 <button class="btn" id="again" type="button" hidden>PLAY AGAIN</button>
+
+<div id="over" role="dialog" aria-labelledby="overTitle" hidden>
+  <h2 id="overTitle">GAME OVER</h2>
+  <p id="overScore"></p>
+  <p id="overBest"></p>
+  <form id="nameForm" autocomplete="off">
+    <label for="initials">ENTER YOUR INITIALS</label>
+    <input id="initials" name="initials" type="text" maxlength="3" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-describedby="overMsg">
+    <button class="btn" type="submit">SAVE SCORE</button>
+  </form>
+  <p id="overMsg" aria-live="polite"></p>
+  <p id="boardTitle">TOP 10</p>
+  <ol id="board"></ol>
+  <div id="overBtns">
+    <button class="btn" id="overAgain" type="button">PLAY AGAIN</button>
+    <button class="btn" id="overBio" type="button">BACK TO BIO</button>
+  </div>
+</div>
 
 <script>
 const EMAIL = 'travisjustinp@gmail.com';
@@ -223,6 +293,15 @@ const scoreEl = document.getElementById('score');
 const livesEl = document.getElementById('lives');
 const safeEl = document.getElementById('safe');
 const againEl = document.getElementById('again');
+const modeBtn = document.getElementById('modeBtn');
+const scoreLabelEl = document.getElementById('scoreLabel');
+const overEl = document.getElementById('over');
+const overScoreEl = document.getElementById('overScore');
+const overBestEl = document.getElementById('overBest');
+const overMsgEl = document.getElementById('overMsg');
+const nameForm = document.getElementById('nameForm');
+const initialsEl = document.getElementById('initials');
+const boardEl = document.getElementById('board');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const touchFirst = window.matchMedia && matchMedia('(pointer: coarse)').matches;
 
@@ -392,7 +471,28 @@ const enemies = LINES.map((l, i) => ({
 let bullets = [], ebullets = [], particles = [];
 const ship = { x: 0, y: 0, vy: 0, cd: 0, dead: false, respawn: 0, inv: 0 };
 let frame = 0, score = 0, lives = 3, target = -1, holdUntil = 0, fireIn = 70, doneAt = 0;
-let phase = 'entering'; // entering | battle | done
+let phase = 'entering'; // entering | battle | done (bio finished) | over (arcade game over)
+
+// Two modes. 'bio' is the page itself: one wave, each enemy shot drops a line. 'arcade' is the
+// game on its own: no bio, wave after wave, each stage harder, score saved to the leaderboard.
+let mode = 'bio';
+let stage = 1, banner = null, nextShipAt = 20000, overAt = 0, runId = 0, arcadeHint = false;
+
+// Everything that gets harder, in one place. k is how far in we are; it stops climbing at stage 13.
+// At k = 0 these are exactly the bio page's numbers.
+function diff() {
+  const k = mode === 'arcade' ? Math.min(stage - 1, 12) : 0;
+  return {
+    fireMin: Math.max(12, 45 - 3 * k), fireVar: Math.max(10, 55 - 4 * k),   // steps between formation shots
+    shot: 1 + 0.07 * k,                                                     // enemy shot speed
+    diveMin: Math.max(30, 110 - 8 * k), diveVar: Math.max(20, 90 - 6 * k),  // steps between dives
+    divers: Math.min(2 + Math.floor(k / 2), 6),                             // how many may dive at once
+    diveFrames: Math.max(72, 130 - 5 * k),                                  // how long a dive takes
+    diveShots: k >= 6 ? [0.14, 0.26, 0.38] : [0.16, 0.3],                   // when a diver fires
+    bossHp: k >= 4 ? 3 : 2,
+    entryGap: Math.max(10, 26 - 2 * k),                                     // steps between enemies flying in
+  };
+}
 
 // Who is flying. The page plays itself until a visitor presses a key or drags; it takes the
 // ship back if they go quiet, and finishes the run for them if they lose every ship.
@@ -402,7 +502,9 @@ const pointer = { down: false, id: -1, x: 0 };
 
 function updatePrompt() {
   let text = '';
-  if (phase !== 'done') {
+  if (mode === 'arcade') {
+    if (arcadeHint && phase !== 'over') text = touchFirst ? 'DRAG TO MOVE AND FIRE' : 'ARROWS MOVE  SPACE FIRES';
+  } else if (phase !== 'done') {
     if (gameOver) text = 'GAME OVER';
     else if (!manual) text = touchFirst ? 'DRAG TO PLAY' : 'ARROWS + SPACE TO PLAY';
   }
@@ -415,6 +517,28 @@ function renderLives() {
   livesEl.setAttribute('aria-label', lives + (lives === 1 ? ' ship' : ' ships'));
 }
 renderLives();
+
+function setScore() {
+  scoreEl.textContent = String(score).padStart(5, '0');
+  while (mode === 'arcade' && score >= nextShipAt) {      // a bonus ship every 20,000 points, up to five
+    nextShipAt += 20000;
+    if (lives < 5) { lives++; renderLives(); [784, 1047, 1319].forEach((f, i) => setTimeout(() => tone(f, 0.1, 'square', 0.06), i * 80)); }
+  }
+}
+
+// The top-bar button and score label follow the mode. On a narrow bar the button uses a short label.
+function updateHud() {
+  scoreLabelEl.textContent = mode === 'arcade' ? 'SCORE · STAGE ' + stage : 'SCORE';
+  const full = mode === 'arcade' ? 'BACK TO BIO' : 'JUST PLAY THE GAME', short = mode === 'arcade' ? 'BIO' : 'PLAY';
+  modeBtn.textContent = full;
+  modeBtn.setAttribute('aria-label', mode === 'arcade' ? 'Back to the bio' : 'Just play the game');
+  if (!W) return;
+  const cs = getComputedStyle(hudEl);
+  const room = hudEl.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight);
+  const textW = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().width; };
+  const side = Math.max(textW(scoreLabelEl), scoreEl.offsetWidth, livesEl.offsetWidth);
+  if (modeBtn.offsetWidth + 2 * side + 20 > room) modeBtn.textContent = short;   // the two sides are equal width, so the button stays centred
+}
 
 function px(n) { return parseFloat(n) || 0; }
 
@@ -453,7 +577,7 @@ function layout() {
   bioEl.style.paddingLeft = padL + 'px'; bioEl.style.paddingRight = padR + 'px';
   bioEl.style.paddingTop = g.zoneTop + 'px'; bioEl.style.paddingBottom = (H - g.zoneBottom) + 'px';
   bioEl.style.setProperty('--avail', (W - padL - padR - 8) + 'px');
-  if (linesEl.offsetHeight > g.zoneBottom - g.zoneTop && W > H * 1.2) {
+  if (mode === 'bio' && linesEl.offsetHeight > g.zoneBottom - g.zoneTop && W > H * 1.2) {
     document.body.classList.add('side');
     let gs = geom(true, sT, sR, sB, sL);
     hudEl.style.left = gs.gx + 'px'; hudEl.style.width = gs.gw + 'px';
@@ -482,13 +606,14 @@ function layout() {
   }
   ship.x = first ? G.cx : clamp(G.x + (ship.x - prev.x) * G.w / prev.w, G.x + 5 * G.u, G.x + G.w - 5 * G.u);
   if (phase !== 'done') ship.y = G.shipY;
+  updateHud();
 }
 
 const alive = e => e.state !== 'dead';
 const hittable = e => e.state === 'formed' || e.state === 'diving';
 const shootable = e => hittable(e) || (e.state === 'entering' && e.y > 0);   // a player can also pick them off on the way in
 // The last boss carries the contact buttons, so it can't be shot until everything else is down.
-const shielded = e => !!LINES[e.id].connect && enemies.some(o => o !== e && alive(o));
+const shielded = e => mode === 'bio' && !!LINES[e.id].connect && enemies.some(o => o !== e && alive(o));
 
 function burst(x, y, color, n, power) {
   const pal = [color, '#ffffff', color, '#ffd27a'], k = G.u / 3;
@@ -502,13 +627,21 @@ function kill(e) {
   const big = e.type === 'boss', diving = e.state === 'diving';
   e.state = 'dead';
   burst(e.x, e.y, e.color, big ? 34 : 20, big ? 6 : 4.5);
-  revealLine(e.id);
+  if (mode === 'bio') revealLine(e.id);
   score += (big ? 500 : 150) * (diving ? 2 : 1);
-  scoreEl.textContent = String(score).padStart(5, '0');
+  setScore();
   boom(big);
   target = enemies.findIndex(alive);
   holdUntil = frame + 14;
-  if (target === -1) {
+  if (mode === 'arcade' && phase === 'over') return;
+  if (target === -1 && mode === 'arcade') {      // wave cleared: bonus, then a harder one
+    score += 500 * Math.min(stage, 10); setScore();
+    stage++;
+    banner = { text: 'STAGE ' + stage, until: frame + 130 };
+    spawnWave(110);
+    updateHud();
+    [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.12, 'square', 0.06), i * 90));
+  } else if (target === -1) {
     phase = 'done'; doneAt = frame;
     manual = false; keys.clear(); pointer.down = false; updatePrompt();
     [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.15, 'square', 0.07), 250 + i * 100));
@@ -533,7 +666,8 @@ function startDive(e) {
     p2: { x: keep(ship.x + dir * Math.min(G.w * 0.3, 40 * u)), y: H * 0.55 }, // swing wide
     p3: { x: keep(ship.x), y: H + 12 * u },                                   // through the ship
   };
-  e.t = 0; e.dt = 1 / 130; e.state = 'diving'; e.dived = true; e.shots = [0.16, 0.3];
+  const D = diff();
+  e.t = 0; e.dt = 1 / D.diveFrames; e.state = 'diving'; e.dived = true; e.shots = D.diveShots.slice();
   tone(900, 0.35, 'square', 0.04, 220);
 }
 
@@ -542,7 +676,7 @@ const atRisk = () => manual || lives > 1;
 const enemiesMayFire = () => phase === 'battle' && atRisk() && !ship.dead;
 
 function enemyShoot(e) {
-  const vy = G.ebv, tt = Math.max(1, (ship.y - e.y) / vy);
+  const vy = G.ebv * diff().shot, tt = Math.max(1, (ship.y - e.y) / vy);
   const vx = clamp((ship.x - e.x) / tt, -vy * 0.4, vy * 0.4);
   ebullets.push({ x: e.x, y: e.y + 4 * e.sc, vx, vy });
   tone(240, 0.06, 'square', 0.03);
@@ -567,14 +701,18 @@ function shipHit() {
   burst(ship.x, ship.y, C.ship, 30, 6);
   boom(true);
   ship.dead = true; ship.respawn = 70;
-  if (lives <= 0) {            // out of ships: the autopilot flies the rest so the bio still completes
+  if (lives <= 0 && mode === 'arcade') {      // arcade: that's the game. The score panel opens after the explosion.
+    phase = 'over'; overAt = frame + 70; keys.clear(); pointer.down = false;
+    updatePrompt();
+  } else if (lives <= 0) {     // bio: out of ships, so the autopilot flies the rest and the bio still completes
     gameOver = true; manual = false; keys.clear(); pointer.down = false;
     updatePrompt();
   }
 }
 
 function takeOver() {
-  if (gameOver || phase === 'done') return;
+  if (arcadeHint) { arcadeHint = false; updatePrompt(); }
+  if (gameOver || phase === 'done' || phase === 'over') return;
   lastInput = frame;
   if (!manual) { manual = true; diveIn = 80; updatePrompt(); }
 }
@@ -595,35 +733,141 @@ function flyManual() {
     tone(1100, 0.04, 'square', 0.05);
   }
   if (holding) lastInput = frame;
-  else if (frame - lastInput > 120) { manual = false; updatePrompt(); }   // two quiet seconds: autopilot again
+  else if (mode === 'bio' && frame - lastInput > 120) { manual = false; updatePrompt(); }   // two quiet seconds: autopilot again
 }
 
-function restart() {
-  againEl.hidden = true;
+// A fresh wave flies in, `delay` steps from now.
+function spawnWave(delay) {
+  const D = diff();
+  enemies.forEach((e, i) => Object.assign(e, {
+    state: 'waiting', t: 0, y: -1000, startAt: frame + delay + i * D.entryGap,
+    hp: e.type === 'boss' ? D.bossHp : 1, dived: false, shots: [], color: LINES[i].color, hov: i * 0.9,
+  }));
+  phase = 'entering'; target = -1;
+}
+
+// Back to a clean slate: empty bio, no shots in the air, full ships, score zero.
+function resetRun() {
+  runId++;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // or Space would press the last button again
+  againEl.hidden = true; overEl.hidden = true;
   lineEls.forEach((el, i) => {
     el.style.opacity = '0';
     if (LINES[i].connect) el.classList.remove('on'); else el.textContent = '';
   });
   emailBtn.textContent = 'EMAIL';
-  enemies.forEach((e, i) => Object.assign(e, {
-    state: 'waiting', t: 0, y: -1000, hp: e.type === 'boss' ? 2 : 1,
-    dived: false, shots: [], color: LINES[i].color, hov: i * 0.9,
-  }));
-  bullets = []; ebullets = []; particles = [];
-  frame = 0; score = 0; lives = 3; target = -1; holdUntil = 0; fireIn = 70; doneAt = 0;
-  phase = 'entering'; gameOver = false;
+  bullets = []; ebullets = []; particles = []; banner = null;
+  frame = 0; score = 0; lives = 3; holdUntil = 0; fireIn = 70; doneAt = 0; diveIn = 80;
+  stage = 1; nextShipAt = 20000; gameOver = false; arcadeHint = false;
   Object.assign(ship, { x: G.cx, y: G.shipY, vy: 0, cd: 0, dead: false, respawn: 0, inv: 0 });
-  scoreEl.textContent = '00000';
-  renderLives();
   keys.clear(); pointer.down = false;
-  manual = true; lastInput = 0; diveIn = 80;   // they asked to play: start them in control
-  updatePrompt();
+  setScore(); renderLives();
 }
+
+// PLAY AGAIN on the bio page: the same run, with the visitor at the controls.
+function restart() {
+  resetRun();
+  spawnWave(40);
+  manual = true; lastInput = 0;
+  updateHud(); updatePrompt();
+}
+
+function startArcade() {
+  mode = 'arcade'; document.body.classList.add('arcade');
+  resetRun();
+  manual = true; arcadeHint = true;
+  spawnWave(70);
+  banner = { text: 'STAGE 1', until: frame + 120 };
+  layout(); updatePrompt();
+  loadBoard();
+}
+
+// Leaving the arcade shows the whole bio straight away instead of replaying the run.
+function exitArcade() {
+  mode = 'bio'; document.body.classList.remove('arcade');
+  resetRun();
+  enemies.forEach(e => { e.state = 'dead'; });
+  phase = 'done'; doneAt = -1000; target = -1; manual = false;
+  ship.y = -1000;
+  layout(); updatePrompt();
+  const run = runId;
+  lineEls.forEach((_, i) => setTimeout(() => { if (run === runId) revealLine(i); }, i * 70));
+}
+
+// Leaderboard. The top ten live in a small database behind /api/scores.
+let board = null, boardDown = false, myId = 0, saving = false, finalScore = 0, finalStage = 1;
+const stored = (key, value) => {            // browser storage can be blocked; never let that break the game
+  try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (e) {}
+  return null;
+};
+
+function renderBoard() {
+  boardEl.textContent = '';
+  const note = text => { const li = document.createElement('li'); li.className = 'note'; li.textContent = text; boardEl.appendChild(li); };
+  if (boardDown) return note('LEADERBOARD IS OFFLINE');
+  if (!board) return note('LOADING');
+  if (!board.length) return note('NO SCORES YET. BE THE FIRST.');
+  board.forEach((row, i) => {
+    const li = document.createElement('li');
+    if (row.id === myId) li.className = 'me';
+    for (const text of [(i + 1) + '.', row.name, Number(row.score).toLocaleString('en-US'), 'ST ' + row.stage]) {
+      const s = document.createElement('span'); s.textContent = text; li.appendChild(s);
+    }
+    boardEl.appendChild(li);
+  });
+}
+
+async function loadBoard() {
+  try {
+    const r = await fetch('/api/scores', { cache: 'no-store' });
+    if (!r.ok) throw new Error('status ' + r.status);
+    board = (await r.json()).top; boardDown = false;
+  } catch (e) { boardDown = true; }
+  nameForm.hidden = boardDown || finalScore <= 0 || myId > 0;
+  renderBoard();
+}
+
+function openOver() {
+  finalScore = score; finalStage = stage; myId = 0; saving = false;
+  const best = Math.max(Number(stored('tp-best')) || 0, finalScore);
+  stored('tp-best', String(best));
+  overScoreEl.textContent = 'SCORE ' + finalScore.toLocaleString('en-US') + ' · STAGE ' + finalStage;
+  overBestEl.textContent = 'YOUR BEST ' + best.toLocaleString('en-US');
+  overMsgEl.textContent = '';
+  initialsEl.value = stored('tp-initials') || '';
+  nameForm.hidden = boardDown || finalScore <= 0;
+  renderBoard();
+  overEl.hidden = false; overEl.scrollTop = 0;
+  if (!touchFirst && !nameForm.hidden) initialsEl.focus();
+  loadBoard();
+}
+
+initialsEl.addEventListener('input', () => { initialsEl.value = initialsEl.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3); });
+nameForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  if (saving || myId) return;
+  const name = initialsEl.value.toUpperCase().replace(/[^A-Z]/g, '');
+  if (name.length !== 3) { overMsgEl.textContent = 'USE THREE LETTERS'; return; }
+  saving = true; overMsgEl.textContent = 'SAVING';
+  try {
+    const r = await fetch('/api/scores', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, score: finalScore, stage: finalStage }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) overMsgEl.textContent = d.message || 'COULD NOT SAVE. TRY AGAIN.';
+    else {
+      myId = d.id; board = d.top; boardDown = false;
+      overMsgEl.textContent = 'SAVED. YOU ARE #' + d.rank;
+      nameForm.hidden = true;
+      stored('tp-initials', name);
+      renderBoard();
+    }
+  } catch (err) { overMsgEl.textContent = 'COULD NOT SAVE. TRY AGAIN.'; }
+  saving = false;
+});
 
 function updateShip() {
   const u = G.u;
   if (ship.dead) {
-    if (--ship.respawn <= 0) { ship.dead = false; ship.x = G.cx; ship.inv = 110; }
+    if (phase !== 'over' && --ship.respawn <= 0) { ship.dead = false; ship.x = G.cx; ship.inv = 110; }
     return;
   }
   if (ship.inv > 0) ship.inv--;
@@ -721,7 +965,9 @@ function update() {
   }
 
   // The fight starts as soon as the front row is in place; the back rows keep flying in.
-  if (phase === 'entering' && enemies.slice(0, ROW_N[2]).every(e => e.state === 'formed' || e.state === 'dead')) {
+  // (In the arcade it starts with the first enemy to arrive, so there's no free shooting gallery.)
+  const settled = e => e.state === 'formed' || e.state === 'dead';
+  if (phase === 'entering' && (mode === 'arcade' ? enemies.some(settled) : enemies.slice(0, ROW_N[2]).every(settled))) {
     phase = 'battle'; target = enemies.findIndex(alive); holdUntil = frame + 30;
   }
 
@@ -730,16 +976,18 @@ function update() {
     if (manual) {
       // With a player flying, enemies keep coming: every couple of seconds one peels off and dives.
       if (--diveIn <= 0) {
-        diveIn = 110 + Math.random() * 90;
+        const D = diff();
+        diveIn = D.diveMin + Math.random() * D.diveVar;
         const pool = enemies.filter(e => e.state === 'formed' && !shielded(e));
-        if (pool.length && !ship.dead && enemies.filter(e => e.state === 'diving').length < 2)
+        if (pool.length && !ship.dead && enemies.filter(e => e.state === 'diving').length < D.divers)
           startDive(pool[Math.floor(Math.random() * pool.length)]);
       }
     } else if (tg && tg.state === 'formed' && LINES[tg.id].dive && !tg.dived && frame >= holdUntil && !ship.dead) startDive(tg);
 
     // Formation fire: only an enemy with nobody in front of it shoots.
     if (--fireIn <= 0) {
-      fireIn = 45 + Math.random() * 55;
+      const D = diff();
+      fireIn = D.fireMin + Math.random() * D.fireVar;
       if (enemiesMayFire()) {
         const formed = enemies.filter(e => e.state === 'formed');
         const front = formed.filter(e => !formed.some(o => o !== e && o.fy > e.fy && Math.abs(o.fx - e.fx) < 16 * u));
@@ -764,6 +1012,7 @@ function update() {
   }
 
   if (phase === 'done' && againEl.hidden && frame - doneAt > 110) againEl.hidden = false;
+  if (phase === 'over' && overEl.hidden && frame >= overAt) openOver();
 
   // Enemy shots and dive-bombers against the ship
   const exposed = phase === 'battle' && !ship.dead && ship.inv <= 0 && atRisk();
@@ -831,6 +1080,18 @@ function draw() {
     ctx.restore();
     drawSprite(SPR.ship, ship.x, ship.y, C.ship, u);
   }
+
+  if (banner && frame < banner.until) {        // "STAGE 3" between waves, fading out
+    const left = banner.until - frame;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, left / 30);
+    ctx.font = Math.round(3.4 * u) + 'px "Press Start 2P", ui-monospace, monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(255,255,255,0.5)'; ctx.shadowBlur = 2 * u;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(banner.text, G.cx, H * 0.46);
+    ctx.restore();
+  }
 }
 
 // Fixed 60-per-second steps, so the game runs the same speed on any display.
@@ -854,9 +1115,12 @@ if (document.fonts && document.fonts.ready) document.fonts.ready.then(onResize);
 // Controls. Arrow keys or A/D steer and Space fires; on a touch screen, drag to steer and the
 // ship fires while your finger is down. Links and buttons keep their own taps and key presses.
 const KEYMAP = { ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right', ' ': 'fire', ArrowUp: 'fire', w: 'fire', W: 'fire' };
-const onControl = e => !!(e.target && e.target.closest && e.target.closest('a, button'));
+const onControl = e => !!(e.target && e.target.closest && e.target.closest('a, button, input'));
 document.addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target && e.target.closest && e.target.closest('input')) return;   // typing initials: A, D and W are letters here
+  if (e.key === 'Escape' && mode === 'arcade') { e.preventDefault(); exitArcade(); return; }
+  if (phase === 'over') return;
   if (phase === 'done') {
     if ((e.key === ' ' || e.key === 'Enter') && !onControl(e) && !againEl.hidden) { e.preventDefault(); restart(); }
     return;
@@ -870,7 +1134,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => { keys.delete(KEYMAP[e.key]); });
 window.addEventListener('blur', () => { keys.clear(); pointer.down = false; });
 document.addEventListener('pointerdown', e => {
-  if (onControl(e) || (e.pointerType === 'mouse' && e.button !== 0) || gameOver || phase === 'done') return;
+  if (onControl(e) || (e.pointerType === 'mouse' && e.button !== 0) || gameOver || phase === 'done' || phase === 'over') return;
   pointer.down = true; pointer.id = e.pointerId; pointer.x = e.clientX;
   takeOver();
 });
@@ -879,6 +1143,9 @@ const pointerEnd = e => { if (e.pointerId === pointer.id) pointer.down = false; 
 document.addEventListener('pointerup', pointerEnd);
 document.addEventListener('pointercancel', pointerEnd);
 againEl.addEventListener('click', restart);
+modeBtn.addEventListener('click', () => { if (mode === 'arcade') exitArcade(); else startArcade(); });
+document.getElementById('overAgain').addEventListener('click', startArcade);
+document.getElementById('overBio').addEventListener('click', exitArcade);
 
 updatePrompt();
 layout();
