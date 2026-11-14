@@ -19,6 +19,8 @@
   --w18: rgba(255,255,255,0.18);
   --tech: #39ff14;
   --tech-glow: rgba(57,255,20,0.3);
+  --gold: #ffd700;
+  --gold-glow: rgba(255,215,0,0.3);
   --scan: rgba(0,0,0,0.08);
   color-scheme: dark;
 }
@@ -59,7 +61,7 @@ html, body {
 }
 #lines {
   display: flex; flex-direction: column; align-items: center;
-  gap: clamp(5px, 1.3vh, 24px);
+  gap: clamp(5px, 1.1vh, 22px);
   min-width: 0; max-width: 100%;
 }
 
@@ -69,10 +71,11 @@ html, body {
   line-height: 1.8; min-height: 1.8em;
   font-size: min(var(--fs), calc(var(--avail) / (var(--n, 20) * 1.1)));
 }
-.bl.name  { --fs: clamp(12px, min(2.6vw, 3vh), 64px);  color: var(--w); text-shadow: 0 0 12px rgba(255,255,255,0.5); }
-.bl.role  { --fs: clamp(9px, min(1.8vw, 2vh), 44px);   color: var(--w75); }
-.bl.small { --fs: clamp(7px, min(1.3vw, 1.5vh), 32px); color: var(--w55); letter-spacing: 0.08em; }
-.bl.tech  { --fs: clamp(7px, min(1.3vw, 1.5vh), 32px); color: var(--tech); letter-spacing: 0.08em; text-shadow: 0 0 8px var(--tech-glow); }
+.bl.name  { --fs: clamp(12px, min(2.6vw, 2.8vh), 64px);  color: var(--w); text-shadow: 0 0 12px rgba(255,255,255,0.5); }
+.bl.role  { --fs: clamp(9px, min(1.8vw, 1.9vh), 44px);   color: var(--w75); }
+.bl.small { --fs: clamp(7px, min(1.3vw, 1.35vh), 32px); color: var(--w55); letter-spacing: 0.08em; }
+.bl.cert  { --fs: clamp(7px, min(1.3vw, 1.35vh), 32px); color: var(--gold); letter-spacing: 0.08em; text-shadow: 0 0 8px var(--gold-glow); }
+.bl.tech  { --fs: clamp(7px, min(1.3vw, 1.35vh), 32px); color: var(--tech); letter-spacing: 0.08em; text-shadow: 0 0 8px var(--tech-glow); }
 
 .ch { display: inline-block; opacity: 0; animation: char-drop 0.44s cubic-bezier(0.17,1.35,0.4,1) forwards; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -92,7 +95,7 @@ html, body {
 .bl a:focus-visible { outline: none; }
 
 .bl.connect {
-  --fs: clamp(7px, min(1.3vw, 1.5vh), 32px);
+  --fs: clamp(7px, min(1.3vw, 1.35vh), 32px);
   font-size: var(--fs);
   display: flex; flex-wrap: wrap; justify-content: center; gap: max(10px, 1em);
   white-space: normal; min-height: calc(3.2em + 4px); margin-top: 0.8em;
@@ -184,13 +187,15 @@ const LINES = [
   { seg: [['HEAD OF SOCIAL MEDIA, CANADA @ '], ['SPECIALIZED', URL_SP]], cls: 'small', type: 'butterfly', color: C.gold, row: 1, col: 1, dive: true },
   { seg: [['RETAIL MANAGER @ '], ['SPECIALIZED', URL_SP]],           cls: 'small', type: 'bee',       color: C.cyan, row: 1, col: 2 },
   { seg: [['UFV', URL_UFV], ['  |  ABBOTSFORD, BC']],                cls: 'small', type: 'butterfly', color: C.gold, row: 1, col: 3, dive: true },
+  { seg: [['GOOGLE DATA ANALYTICS CERTIFICATE']],                    cls: 'cert',  type: 'butterfly', color: C.gold, row: 1, col: 4 },
+  { seg: [['SQL / POWER BI']],                                       cls: 'tech',  type: 'bee',       color: C.tech, row: 1, col: 5, dive: true },
   { seg: [['REACT / TYPESCRIPT']],                                   cls: 'tech',  type: 'butterfly', color: C.tech, row: 0, col: 0 },
   { seg: [['SUPABASE / POSTGRESQL']],                                cls: 'tech',  type: 'bee',       color: C.tech, row: 0, col: 1, dive: true },
   { seg: [['STRIPE + CLOUDFLARE']],                                  cls: 'tech',  type: 'bee',       color: C.tech, row: 0, col: 3 },
   { seg: [['DENO / VITE']],                                          cls: 'tech',  type: 'butterfly', color: C.tech, row: 0, col: 4, dive: true },
   { connect: true,                                                                 type: 'boss',      color: C.boss, row: 0, col: 2, dive: true },
 ];
-const ROW_N = [5, 4, 3];
+const ROW_N = [5, 6, 3];
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -432,7 +437,7 @@ function layout() {
   G.ebv = Math.max(3.5, H * 0.012);    // enemy shot speed
   G.vmax = 2.6 * g.u;                  // ship top speed
 
-  const gapX = Math.min(g.gw * 0.84 / 4, 22 * g.u);
+  const gapX = Math.min(g.gw * 0.84 / (Math.max(...ROW_N) - 1), 22 * g.u);
   for (const e of enemies) {
     const l = LINES[e.id];
     e.sc = e.type === 'boss' ? g.u + 1 : g.u;
