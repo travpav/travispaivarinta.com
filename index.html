@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Travis Paivarinta. Founder of EstimateKit. Abbotsford, BC.">
 <meta name="theme-color" content="#05050f">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.png" type="image/png" sizes="96x96">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>Travis Paivarinta</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
@@ -18,10 +21,7 @@
   --w35: rgba(255,255,255,0.35);
   --w18: rgba(255,255,255,0.18);
   --tech: #39ff14;
-  --tech-glow: rgba(57,255,20,0.3);
-  --gold: #ffd700;
-  --gold-glow: rgba(255,215,0,0.3);
-  --scan: rgba(0,0,0,0.08);
+  --tech-glow: rgba(57,255,20,0.3);  --scan: rgba(0,0,0,0.08);
   color-scheme: dark;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -74,7 +74,6 @@ html, body {
 .bl.name  { --fs: clamp(12px, min(2.6vw, 2.8vh), 64px);  color: var(--w); text-shadow: 0 0 12px rgba(255,255,255,0.5); }
 .bl.role  { --fs: clamp(9px, min(1.8vw, 1.9vh), 44px);   color: var(--w75); }
 .bl.small { --fs: clamp(7px, min(1.3vw, 1.35vh), 32px); color: var(--w55); letter-spacing: 0.08em; }
-.bl.cert  { --fs: clamp(7px, min(1.3vw, 1.35vh), 32px); color: var(--gold); letter-spacing: 0.08em; text-shadow: 0 0 8px var(--gold-glow); }
 .bl.tech  { --fs: clamp(7px, min(1.3vw, 1.35vh), 32px); color: var(--tech); letter-spacing: 0.08em; text-shadow: 0 0 8px var(--tech-glow); }
 
 .ch { display: inline-block; opacity: 0; animation: char-drop 0.44s cubic-bezier(0.17,1.35,0.4,1) forwards; }
@@ -175,6 +174,7 @@ const URL_EK  = 'https://estimatekit.com';
 const URL_RS  = 'https://ritchiesmith.com';
 const URL_SP  = 'https://www.specialized.com/ca/en';
 const URL_UFV = 'https://www.ufv.ca';
+const URL_GOOGLE = 'https://grow.google/certificates/data-analytics/';
 const C = { boss: '#ff4466', hurt: '#b06cff', cyan: '#00e5ff', gold: '#ffd700', tech: '#39ff14', ship: '#00ffff', shot: '#ffffaa', eshot: '#ff7a8f' };
 
 // Index = kill order = reading order. Row 2 is nearest the ship, so it goes first.
@@ -186,8 +186,8 @@ const LINES = [
   { seg: [['DATA ANALYST @ '], ['RITCHIE-SMITH', URL_RS]],           cls: 'small', type: 'bee',       color: C.cyan, row: 1, col: 0 },
   { seg: [['HEAD OF SOCIAL MEDIA, CANADA @ '], ['SPECIALIZED', URL_SP]], cls: 'small', type: 'butterfly', color: C.gold, row: 1, col: 1, dive: true },
   { seg: [['RETAIL MANAGER @ '], ['SPECIALIZED', URL_SP]],           cls: 'small', type: 'bee',       color: C.cyan, row: 1, col: 2 },
-  { seg: [['UFV', URL_UFV], ['  |  ABBOTSFORD, BC']],                cls: 'small', type: 'butterfly', color: C.gold, row: 1, col: 3, dive: true },
-  { seg: [['GOOGLE DATA ANALYTICS CERTIFICATE']],                    cls: 'cert',  type: 'butterfly', color: C.gold, row: 1, col: 4 },
+  { seg: [['BUSINESS ASSOCIATE DEGREE @ '], ['UFV', URL_UFV]],       cls: 'small', type: 'butterfly', color: C.gold, row: 1, col: 3, dive: true },
+  { seg: [['DATA ANALYTICS CERTIFICATE @ '], ['GOOGLE', URL_GOOGLE]], cls: 'small', type: 'butterfly', color: C.gold, row: 1, col: 4 },
   { seg: [['SQL / POWER BI']],                                       cls: 'tech',  type: 'bee',       color: C.tech, row: 1, col: 5, dive: true },
   { seg: [['REACT / TYPESCRIPT']],                                   cls: 'tech',  type: 'butterfly', color: C.tech, row: 0, col: 0 },
   { seg: [['SUPABASE / POSTGRESQL']],                                cls: 'tech',  type: 'bee',       color: C.tech, row: 0, col: 1, dive: true },
