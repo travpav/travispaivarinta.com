@@ -153,8 +153,10 @@ html, body {
 #again:active { transform: translate(calc(-50% + 2px), 2px); }
 
 /* Top-bar button: starts the arcade game, or goes back to the bio. */
-#hud > div { flex: 1 1 0; min-width: 0; white-space: nowrap; }
-#modeBtn {
+#hud > div:not(#hudBtns) { flex: 1 1 0; min-width: 0; white-space: nowrap; }
+#hudBtns { flex: none; align-self: center; display: flex; gap: 0.9em; }
+#over.board h2 { color: var(--w); text-shadow: 0 0 12px rgba(255,255,255,0.5); }
+.hud-btn {
   position: relative; flex: none; align-self: center;
   opacity: 1; pointer-events: auto; min-height: 0; white-space: nowrap;
   padding: 0.75em 0.9em; letter-spacing: 0.04em;
@@ -162,7 +164,7 @@ html, body {
   box-shadow: 0.25em 0.25em 0 var(--w35);
   user-select: none; -webkit-user-select: none;
 }
-#modeBtn::after { content: ""; position: absolute; inset: -9px -6px; }   /* bigger tap target */
+.hud-btn::after { content: ""; position: absolute; inset: -9px -3px; }   /* bigger tap target */
 
 /* Arcade mode: no bio, just the game. */
 body.arcade #bio, body.arcade #again { display: none; }
@@ -218,7 +220,10 @@ body.side #lines { gap: clamp(3px, 1.1vh, 12px); }
 <div id="safe"></div>
 <div id="hud">
   <div><small id="scoreLabel">SCORE</small><span id="score">00000</span></div>
-  <button class="btn" id="modeBtn" type="button">JUST PLAY THE GAME</button>
+  <div id="hudBtns">
+    <button class="btn hud-btn" id="modeBtn" type="button">JUST PLAY THE GAME</button>
+    <button class="btn hud-btn" id="boardBtn" type="button">LEADERBOARD</button>
+  </div>
   <div style="text-align:right"><small>SHIPS</small><span id="lives" role="img" aria-label="3 ships"></span></div>
 </div>
 <div id="bio">
@@ -248,6 +253,7 @@ body.side #lines { gap: clamp(3px, 1.1vh, 12px); }
   <div id="overBtns">
     <button class="btn" id="overAgain" type="button">PLAY AGAIN</button>
     <button class="btn" id="overBio" type="button">BACK TO BIO</button>
+    <button class="btn" id="overClose" type="button" hidden>CLOSE</button>
   </div>
 </div>
 
@@ -294,6 +300,12 @@ const livesEl = document.getElementById('lives');
 const safeEl = document.getElementById('safe');
 const againEl = document.getElementById('again');
 const modeBtn = document.getElementById('modeBtn');
+const boardBtn = document.getElementById('boardBtn');
+const hudBtnsEl = document.getElementById('hudBtns');
+const overTitleEl = document.getElementById('overTitle');
+const overAgainBtn = document.getElementById('overAgain');
+const overBioBtn = document.getElementById('overBio');
+const overCloseBtn = document.getElementById('overClose');
 const scoreLabelEl = document.getElementById('scoreLabel');
 const overEl = document.getElementById('over');
 const overScoreEl = document.getElementById('overScore');
@@ -530,14 +542,20 @@ function setScore() {
 function updateHud() {
   scoreLabelEl.textContent = mode === 'arcade' ? 'SCORE · STAGE ' + stage : 'SCORE';
   const full = mode === 'arcade' ? 'BACK TO BIO' : 'JUST PLAY THE GAME', short = mode === 'arcade' ? 'BIO' : 'PLAY';
-  modeBtn.textContent = full;
+  modeBtn.textContent = full; boardBtn.textContent = 'LEADERBOARD';
   modeBtn.setAttribute('aria-label', mode === 'arcade' ? 'Back to the bio' : 'Just play the game');
+  boardBtn.setAttribute('aria-label', 'Leaderboard');
   if (!W) return;
   const cs = getComputedStyle(hudEl);
   const room = hudEl.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight);
   const textW = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().width; };
-  const side = Math.max(textW(scoreLabelEl), scoreEl.offsetWidth, livesEl.offsetWidth);
-  if (modeBtn.offsetWidth + 2 * side + 20 > room) modeBtn.textContent = short;   // the two sides are equal width, so the button stays centred
+  const label = scoreLabelEl.textContent, tight = mode === 'arcade' ? 'STAGE ' + stage : label;
+  // The two sides are equal width, so the buttons stay centred. Shorten things until it all fits.
+  for (const [l, a, b] of [[label, full, 'LEADERBOARD'], [tight, full, 'LEADERBOARD'], [label, full, 'TOP 10'], [tight, full, 'TOP 10'], [tight, short, 'TOP 10']]) {
+    scoreLabelEl.textContent = l; modeBtn.textContent = a; boardBtn.textContent = b;
+    const side = Math.max(textW(scoreLabelEl), scoreEl.offsetWidth, livesEl.offsetWidth);
+    if (hudBtnsEl.offsetWidth + 2 * side + 20 <= room) break;
+  }
 }
 
 function px(n) { return parseFloat(n) || 0; }
@@ -750,7 +768,7 @@ function spawnWave(delay) {
 function resetRun() {
   runId++;
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // or Space would press the last button again
-  againEl.hidden = true; overEl.hidden = true;
+  againEl.hidden = true; overEl.hidden = true; paused = false; boardView = false;
   lineEls.forEach((el, i) => {
     el.style.opacity = '0';
     if (LINES[i].connect) el.classList.remove('on'); else el.textContent = '';
@@ -796,6 +814,7 @@ function exitArcade() {
 
 // Leaderboard. The top ten live in a small database behind /api/scores.
 let board = null, boardDown = false, myId = 0, saving = false, finalScore = 0, finalStage = 1;
+let paused = false, boardView = false;   // the panel doubles as a plain leaderboard view; the game waits while it's open
 const stored = (key, value) => {            // browser storage can be blocked; never let that break the game
   try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (e) {}
   return null;
@@ -823,11 +842,44 @@ async function loadBoard() {
     if (!r.ok) throw new Error('status ' + r.status);
     board = (await r.json()).top; boardDown = false;
   } catch (e) { boardDown = true; }
-  nameForm.hidden = boardDown || finalScore <= 0 || myId > 0;
+  nameForm.hidden = boardView || boardDown || finalScore <= 0 || myId > 0;
   renderBoard();
 }
 
+// Which parts of the panel show: the game-over view (score, initials) or just the board.
+function setPanel(view) {
+  boardView = view === 'board';
+  overEl.classList.toggle('board', boardView);
+  overTitleEl.textContent = boardView ? 'LEADERBOARD' : 'GAME OVER';
+  overScoreEl.hidden = boardView;
+  overAgainBtn.textContent = boardView ? 'PLAY THE GAME' : 'PLAY AGAIN';
+  overAgainBtn.hidden = boardView && mode === 'arcade';   // mid-game there is only CLOSE, which resumes
+  overBioBtn.hidden = boardView;
+  overCloseBtn.hidden = !boardView;
+}
+
+function openBoard() {
+  if (phase === 'over' || !overEl.hidden) return;
+  paused = true; keys.clear(); pointer.down = false;
+  setPanel('board');
+  const best = Number(stored('tp-best')) || 0;
+  overBestEl.textContent = best ? 'YOUR BEST ' + best.toLocaleString('en-US') : '';
+  overMsgEl.textContent = '';
+  nameForm.hidden = true;
+  renderBoard();
+  overEl.hidden = false; overEl.scrollTop = 0;
+  if (!touchFirst) overCloseBtn.focus();
+  loadBoard();
+}
+
+function closeBoard() {
+  overEl.hidden = true; paused = false; boardView = false;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  lastInput = frame;
+}
+
 function openOver() {
+  setPanel('over');
   finalScore = score; finalStage = stage; myId = 0; saving = false;
   const best = Math.max(Number(stored('tp-best')) || 0, finalScore);
   stored('tp-best', String(best));
@@ -1099,7 +1151,7 @@ let last = performance.now(), acc = 0;
 function loop(now) {
   acc += Math.min(100, now - last); last = now;
   let n = 0;
-  while (acc >= 16.667 && n < 5) { update(); acc -= 16.667; n++; }
+  while (acc >= 16.667 && n < 5) { if (!paused) update(); acc -= 16.667; n++; }
   if (n === 5) acc = 0;
   draw();
   requestAnimationFrame(loop);
@@ -1119,8 +1171,9 @@ const onControl = e => !!(e.target && e.target.closest && e.target.closest('a, b
 document.addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target && e.target.closest && e.target.closest('input')) return;   // typing initials: A, D and W are letters here
+  if (e.key === 'Escape' && boardView) { e.preventDefault(); closeBoard(); return; }
   if (e.key === 'Escape' && mode === 'arcade') { e.preventDefault(); exitArcade(); return; }
-  if (phase === 'over') return;
+  if (phase === 'over' || paused) return;
   if (phase === 'done') {
     if ((e.key === ' ' || e.key === 'Enter') && !onControl(e) && !againEl.hidden) { e.preventDefault(); restart(); }
     return;
@@ -1134,7 +1187,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => { keys.delete(KEYMAP[e.key]); });
 window.addEventListener('blur', () => { keys.clear(); pointer.down = false; });
 document.addEventListener('pointerdown', e => {
-  if (onControl(e) || (e.pointerType === 'mouse' && e.button !== 0) || gameOver || phase === 'done' || phase === 'over') return;
+  if (onControl(e) || (e.pointerType === 'mouse' && e.button !== 0) || gameOver || paused || phase === 'done' || phase === 'over') return;
   pointer.down = true; pointer.id = e.pointerId; pointer.x = e.clientX;
   takeOver();
 });
@@ -1144,8 +1197,10 @@ document.addEventListener('pointerup', pointerEnd);
 document.addEventListener('pointercancel', pointerEnd);
 againEl.addEventListener('click', restart);
 modeBtn.addEventListener('click', () => { if (mode === 'arcade') exitArcade(); else startArcade(); });
-document.getElementById('overAgain').addEventListener('click', startArcade);
-document.getElementById('overBio').addEventListener('click', exitArcade);
+boardBtn.addEventListener('click', openBoard);
+overAgainBtn.addEventListener('click', startArcade);
+overBioBtn.addEventListener('click', exitArcade);
+overCloseBtn.addEventListener('click', closeBoard);
 
 updatePrompt();
 layout();
