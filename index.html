@@ -61,14 +61,14 @@ html, body {
 }
 #lines {
   display: flex; flex-direction: column; align-items: center;
-  gap: clamp(5px, 1.1vh, 22px);
+  gap: clamp(4px, 0.85vh, 20px);
   min-width: 0; max-width: 100%;
 }
 
 /* --n is the line's character count: the font shrinks just enough to fit the space it has. */
 .bl {
   opacity: 0; text-align: center; white-space: nowrap;
-  line-height: 1.8; min-height: 1.8em;
+  line-height: 1.7; min-height: 1.7em;
   font-size: min(var(--fs), calc(var(--avail) / (var(--n, 20) * 1.1)));
 }
 .bl.name  { --fs: clamp(12px, min(2.6vw, 2.8vh), 64px);  color: var(--w); text-shadow: 0 0 12px rgba(255,255,255,0.5); }
@@ -89,7 +89,7 @@ html, body {
 /* Company and school names inside a line are links. */
 .bl a { position: relative; color: var(--w); text-decoration: none; pointer-events: auto; cursor: pointer; }
 .bl a::after { content: ""; position: absolute; inset: -9px -5px; }   /* bigger tap target */
-.bl a .ch { border-bottom: max(1px, 0.14em) solid currentColor; padding-bottom: 0.18em; }
+.bl a .ch { text-decoration: underline; text-decoration-thickness: max(1px, 0.14em); text-underline-offset: 0.3em; }   /* an underline, not a border: it must not make the line taller */
 .bl a:hover .ch, .bl a:focus-visible .ch { background: var(--w); color: var(--bg); }
 .bl a:focus-visible { outline: none; }
 
@@ -191,11 +191,13 @@ const LINES = [
   { seg: [['SQL / POWER BI']],                                       cls: 'tech',  type: 'bee',       color: C.tech, row: 1, col: 5, dive: true },
   { seg: [['REACT / TYPESCRIPT']],                                   cls: 'tech',  type: 'butterfly', color: C.tech, row: 0, col: 0 },
   { seg: [['SUPABASE / POSTGRESQL']],                                cls: 'tech',  type: 'bee',       color: C.tech, row: 0, col: 1, dive: true },
-  { seg: [['STRIPE + CLOUDFLARE']],                                  cls: 'tech',  type: 'bee',       color: C.tech, row: 0, col: 3 },
-  { seg: [['DENO / VITE']],                                          cls: 'tech',  type: 'butterfly', color: C.tech, row: 0, col: 4, dive: true },
-  { connect: true,                                                                 type: 'boss',      color: C.boss, row: 0, col: 2, dive: true },
+  { seg: [['STRIPE / CLOUDFLARE']],                                  cls: 'tech',  type: 'butterfly', color: C.tech, row: 0, col: 2 },
+  { seg: [['DENO / VITE']],                                          cls: 'tech',  type: 'butterfly', color: C.tech, row: 0, col: 4 },
+  { seg: [['CLAUDE / RESEND']],                                      cls: 'tech',  type: 'bee',       color: C.tech, row: 0, col: 5, dive: true },
+  { seg: [['TAILWIND / CAPACITOR']],                                 cls: 'tech',  type: 'butterfly', color: C.tech, row: 0, col: 6 },
+  { connect: true,                                                                 type: 'boss',      color: C.boss, row: 0, col: 3, dive: true },
 ];
-const ROW_N = [5, 6, 3];
+const ROW_N = [7, 6, 3];
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
