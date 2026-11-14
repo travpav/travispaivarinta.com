@@ -152,6 +152,17 @@ html, body {
 }
 #again:active { transform: translate(calc(-50% + 2px), 2px); }
 
+/* Sound on/off: bottom-left of the game, level with the prompt. The script sets its left edge. */
+#soundBtn {
+  position: fixed; left: 12px; bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  font-size: clamp(7px, 1vh, 16px); width: max(20px, 2.2em); height: max(14px, 1.54em);
+  padding: 0; border: 0; background: none; color: var(--w55); cursor: pointer; z-index: 15;
+}
+#soundBtn svg { display: block; width: 100%; height: 100%; fill: currentColor; }
+#soundBtn::after { content: ""; position: absolute; inset: -12px -10px; }   /* bigger tap target */
+#soundBtn:hover, #soundBtn:focus-visible { color: var(--w); outline: none; }
+#soundBtn.off { color: var(--w35); }
+
 /* Top-bar button: starts the arcade game, or goes back to the bio. */
 #hud > div:not(#hudBtns) { flex: 1 1 0; min-width: 0; white-space: nowrap; }
 #hudBtns { flex: none; align-self: center; display: flex; gap: 0.9em; }
@@ -237,6 +248,7 @@ body.side #lines { gap: clamp(3px, 1.1vh, 12px); }
 </div>
 <div id="prompt" aria-live="polite"></div>
 <button class="btn" id="again" type="button" hidden>PLAY AGAIN</button>
+<button id="soundBtn" type="button" aria-pressed="true" aria-label="Sound is on. Press to mute."></button>
 
 <div id="over" role="dialog" aria-labelledby="overTitle" hidden>
   <h2 id="overTitle">GAME OVER</h2>
@@ -289,7 +301,7 @@ const LINES = [
 const ROW_N = [7, 6, 3];
 
 const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
+const ctx = canvas.getContext('2d', { alpha: false });   // nothing shows through it, which is a little less work per frame
 const bioEl = document.getElementById('bio');
 const linesEl = document.getElementById('lines');
 const connectEl = document.getElementById('connect');
@@ -316,6 +328,11 @@ const initialsEl = document.getElementById('initials');
 const boardEl = document.getElementById('board');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const touchFirst = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+const soundBtn = document.getElementById('soundBtn');
+const stored = (key, value) => {            // browser storage can be blocked; never let that break the game
+  try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (e) {}
+  return null;
+};
 
 // Bio lines are built from LINES so the enemies and the text can't drift apart.
 const lineEls = LINES.map(l => {
@@ -369,24 +386,162 @@ emailBtn.addEventListener('click', async () => {
   }
 });
 
-// Audio (starts on the first tap, click or key press)
-let audioCtx = null;
-const startAudio = () => { if (!audioCtx) try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} };
-document.addEventListener('pointerdown', startAudio, { once: true });
-document.addEventListener('keydown', startAudio, { once: true });
-function tone(freq, dur, type = 'square', vol = 0.06, slideTo = 0) {
-  if (!audioCtx) return;
+// Sound. Every effect and the music are made here from simple waves: no audio files to load.
+// A browser only lets sound start after a tap, click or key press, and a phone can put it back
+// to sleep, so each of those wakes it again.
+let audioCtx = null, audioDead = false, master = null, sfxBus = null, musicBus = null, noiseBuf = null, pulseWave = null;
+let soundOn = stored('tp-sound') !== 'off';
+function startAudio() {
+  if (audioDead) return;
   try {
-    const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime;
-    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (!audioCtx) {
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const comp = ac.createDynamicsCompressor();          // keeps a pile-up of explosions from crackling
+      master = ac.createGain(); master.gain.value = soundOn ? 1 : 0;
+      sfxBus = ac.createGain(); musicBus = ac.createGain(); musicBus.gain.value = 0;
+      sfxBus.connect(master); musicBus.connect(master); master.connect(comp); comp.connect(ac.destination);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      const N = 24, re = new Float32Array(N), im = new Float32Array(N);   // a thin pulse wave: the old console sound
+      for (let n = 1; n < N; n++) re[n] = 4 / (n * Math.PI) * Math.sin(n * Math.PI * 0.25);
+      pulseWave = ac.createPeriodicWave(re, im);
+      audioCtx = ac;
+    }
+    if (audioCtx.state !== 'running' && !document.hidden) { const p = audioCtx.resume(); if (p && p.catch) p.catch(() => {}); }
+  } catch (e) { if (!audioCtx) audioDead = true; }
+}
+for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) document.addEventListener(ev, startAudio, { capture: true, passive: true });
+document.addEventListener('visibilitychange', () => {       // no music from a tab nobody is looking at
+  if (!audioCtx) return;
+  try { const p = document.hidden ? audioCtx.suspend() : audioCtx.resume(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+});
+const audible = () => !!audioCtx && soundOn && audioCtx.state === 'running';
+
+// One note at an exact time on the audio clock. hold: stays level then lets go (a sung note);
+// otherwise it fades from the start (a pluck).
+function voice(t, freq, dur, type, vol, slideTo, bus, hold) {
+  try {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    if (type === 'pulse') o.setPeriodicWave(pulseWave); else o.type = type;
+    o.frequency.setValueAtTime(freq, t);
     if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
     g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(audioCtx.destination);
-    o.start(); o.stop(t + dur + 0.02);
+    if (hold) { g.gain.setValueAtTime(vol, t + dur - 0.03); g.gain.linearRampToValueAtTime(0, t + dur); }
+    else g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(bus);
+    o.start(t); o.stop(t + dur + 0.02);
   } catch (e) {}
 }
-const boom = big => tone(big ? 300 : 380, big ? 0.5 : 0.28, 'sawtooth', 0.09, 40);
+// A burst of filtered noise: explosions and drums.
+function hiss(t, dur, vol, from, to, kind, bus) {
+  try {
+    const s = audioCtx.createBufferSource(), f = audioCtx.createBiquadFilter(), g = audioCtx.createGain();
+    s.buffer = noiseBuf; s.loop = true;
+    f.type = kind; f.frequency.setValueAtTime(from, t);
+    if (to) f.frequency.exponentialRampToValueAtTime(to, t + dur);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(bus);
+    s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.02);
+  } catch (e) {}
+}
+function tone(freq, dur, type = 'square', vol = 0.06, slideTo = 0, delay = 0) {
+  if (audible()) voice(audioCtx.currentTime + delay, freq, dur, type, vol, slideTo, sfxBus);
+}
+function noise(dur, vol, from, to = 0, kind = 'lowpass', delay = 0) {
+  if (audible()) hiss(audioCtx.currentTime + delay, dur, vol, from, to, kind, sfxBus);
+}
+
+const sfx = {
+  shot:        () => tone(1500, 0.09, 'pulse', 0.05, 380),
+  enemyShot:   () => tone(300, 0.12, 'square', 0.028, 120),
+  settle:      i => tone(440 + i * 55, 0.07, 'pulse', 0.035),
+  dive:        () => { for (let i = 0; i < 5; i++) tone(1000 - i * 130, 0.09, 'square', 0.035, 760 - i * 130, i * 0.07); },
+  clang:       () => { tone(700, 0.08, 'square', 0.06); tone(1050, 0.14, 'triangle', 0.06); },
+  bounce:      () => tone(160, 0.06, 'square', 0.05),
+  boom:        big => { noise(big ? 0.5 : 0.28, big ? 0.2 : 0.14, big ? 2400 : 3600, 90); tone(big ? 240 : 340, big ? 0.42 : 0.2, 'sawtooth', 0.05, 40); },
+  shipBoom:    () => { noise(0.9, 0.24, 2800, 50); tone(420, 0.85, 'sawtooth', 0.07, 28); },
+  jingle:      (notes, gap = 0.09, dur = 0.12, vol = 0.06, delay = 0) => notes.forEach((f, i) => tone(f, dur, 'pulse', vol, 0, delay + i * gap)),
+  drop:        () => tone(880, 0.14, 'triangle', 0.06, 1320),
+  pickup:      () => sfx.jingle([659, 880, 1175, 1568], 0.05, 0.1),
+  shieldBreak: () => { noise(0.25, 0.12, 6000, 800, 'highpass'); tone(1200, 0.25, 'triangle', 0.07, 200); },
+  over:        () => sfx.jingle([523, 494, 440, 392, 330, 262], 0.17, 0.24, 0.06, 0.7),
+  click:       () => tone(660, 0.05, 'pulse', 0.04),
+};
+
+// Music: a 16-bar loop in A minor, played by a little step sequencer. Each bar is a chord (the
+// bass note and the notes the fast part runs through) and a tune in eighth notes ('-' holds).
+const hz = n => { const m = /^([A-G])(#?)(\d)$/.exec(n); return 440 * Math.pow(2, ({ C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1]] + (m[2] ? 1 : 0) + 12 * (+m[3] + 1) - 69) / 12); };
+const CHORDS = { Am: ['A2', 'A3 C4 E4 A4'], F: ['F2', 'F3 A3 C4 F4'], C: ['C3', 'C4 E4 G4 C5'], G: ['G2', 'G3 B3 D4 G4'], E: ['E2', 'E3 G#3 B3 E4'] };
+const SONG = [
+  ['Am', 'E5 - A5 - G5 E5 - C5'], ['Am', 'D5 - E5 - C5 - A4 -'], ['F', 'F5 - A5 - G5 F5 - C5'], ['F', 'D5 - F5 - E5 - C5 -'],
+  ['C',  'E5 - G5 - C6 - B5 G5'], ['C',  'A5 - G5 - E5 - G5 -'], ['G', 'D5 - G5 - B5 - A5 G5'], ['E', 'E5 - G#5 - B5 - E6 -'],
+  ['F',  'A5 - - C6 A5 - F5 -'],  ['G',  'B5 - - D6 B5 - G5 -'], ['Am', 'C6 - B5 A5 - E5 - A5'], ['Am', '- - E5 - A5 - C6 -'],
+  ['F',  'A5 - - C6 A5 - F5 -'],  ['G',  'B5 - - D6 B5 - G5 -'], ['E', 'E6 - D6 B5 - G#5 - B5'], ['E', 'E5 - G#5 - B5 - E6 -'],
+].map(([c, tune]) => ({ bass: hz(CHORDS[c][0]), arp: CHORDS[c][1].split(' ').map(hz), tune: tune.split(' ').map(n => n === '-' ? n : hz(n)) }));
+const music = { level: 0, timer: 0, step: 0, next: 0 };
+const tempo = () => 124 + 3 * Math.min(mode === 'arcade' ? stage - 1 : 0, 12);   // the music speeds up with the stages
+
+function playStep(t, spb) {
+  const bar = SONG[Math.floor(music.step / 16) % SONG.length], i = music.step % 16, intro = music.step < 64;
+  voice(t, bar.arp[[0, 1, 2, 3, 2, 1][i % 6]], spb * 0.95, 'pulse', 0.02, 0, musicBus);
+  if (i % 2 === 0) {
+    const e = i / 2, n = bar.tune[e];
+    voice(t, bar.bass * (e % 4 === 2 ? 2 : 1), spb * 1.8, 'triangle', 0.1, 0, musicBus);
+    if (!intro && n !== '-') {                       // the tune comes in after four bars
+      let len = 1;
+      while (bar.tune[e + len] === '-') len++;
+      voice(t, n, spb * 2 * len * 0.96, 'square', 0.035, 0, musicBus, true);
+    }
+  }
+  if (i % 8 === 0) voice(t, 150, 0.13, 'sine', 0.2, 45, musicBus);                       // kick
+  if (i % 8 === 4 && !intro) hiss(t, 0.1, 0.06, 1800, 0, 'highpass', musicBus);          // snare
+  if (i % 4 === 2) hiss(t, 0.035, 0.03, 7000, 0, 'highpass', musicBus);                  // hat
+}
+function musicTick() {
+  if (!audible()) return;
+  const now = audioCtx.currentTime, spb = 15 / tempo();
+  if (music.next < now) music.next = now + 0.04;      // fell behind (or just started): pick up from now
+  while (music.next < now + 0.15) { playStep(music.next, spb); music.next += spb; music.step++; }
+}
+// Music plays while somebody is playing: always in the arcade, and on the bio page only once a
+// visitor takes the ship. It drops back while the leaderboard is open.
+function musicLevel() {
+  if (!audible()) return 0;
+  const playing = mode === 'arcade' ? phase !== 'over' : manual && phase !== 'done' && !gameOver;
+  return playing ? (paused ? 0.3 : 0.85) : 0;
+}
+function syncMusic() {
+  const lvl = musicLevel();
+  if (lvl === music.level) return;
+  music.level = lvl;
+  try { const t = audioCtx.currentTime; musicBus.gain.cancelScheduledValues(t); musicBus.gain.setTargetAtTime(lvl, t, lvl ? 0.06 : 0.2); } catch (e) {}
+  if (lvl && !music.timer) music.timer = setInterval(musicTick, 30);
+  if (!lvl && music.timer) { clearInterval(music.timer); music.timer = 0; }
+}
+
+const ICON = {
+  on:  ['0001000010', '0011001001', '1111010101', '1111010101', '1111010101', '0011001001', '0001000010'],
+  off: ['0001000000', '0011010001', '1111001010', '1111000100', '1111001010', '0011010001', '0001000000'],
+};
+function renderSound() {
+  let svg = '<svg viewBox="0 0 10 7" aria-hidden="true">';
+  ICON[soundOn ? 'on' : 'off'].forEach((row, r) => [...row].forEach((v, c) => { if (v === '1') svg += '<rect x="' + c + '" y="' + r + '" width="1.05" height="1.05"/>'; }));
+  soundBtn.innerHTML = svg + '</svg>';
+  soundBtn.classList.toggle('off', !soundOn);
+  soundBtn.setAttribute('aria-pressed', String(soundOn));
+  soundBtn.setAttribute('aria-label', soundOn ? 'Sound is on. Press to mute.' : 'Sound is off. Press to turn it on.');
+  soundBtn.title = soundOn ? 'Sound on (M)' : 'Sound off (M)';
+}
+function toggleSound() {
+  soundOn = !soundOn;
+  stored('tp-sound', soundOn ? 'on' : 'off');
+  if (master) master.gain.value = soundOn ? 1 : 0;
+  renderSound();
+  if (soundOn) { startAudio(); sfx.click(); }
+}
+renderSound();
 
 const SPR = {
   bee: [
@@ -427,17 +582,50 @@ const SPR = {
     [0,0,1,1,1,0,0],
     [0,0,0,1,0,0,0],
   ],
+  ship2: [          // twin shot: a cannon on each wing
+    [0,0,0,0,1,0,0,0,0],
+    [0,0,0,1,1,1,0,0,0],
+    [1,0,1,1,1,1,1,0,1],
+    [1,1,1,0,1,0,1,1,1],
+    [1,0,0,1,1,1,0,0,1],
+    [0,0,0,0,1,0,0,0,0],
+  ],
+  ship3: [          // triple shot: wider wings again
+    [0,0,0,0,0,1,0,0,0,0,0],
+    [0,1,0,0,1,1,1,0,0,1,0],
+    [0,1,0,1,1,1,1,1,0,1,0],
+    [1,1,1,1,0,1,0,1,1,1,1],
+    [1,1,0,0,1,1,1,0,0,1,1],
+    [1,0,0,0,0,1,0,0,0,0,1],
+  ],
 };
+// Upgrade capsules: a little box with a letter in it.
+const CAP_LETTERS = { shot: ['110', '101', '110', '100', '100'], rapid: ['110', '101', '110', '101', '101'], shield: ['011', '100', '010', '001', '110'], bonus: ['000', '010', '111', '010', '000'] };
+for (const [kind, rows] of Object.entries(CAP_LETTERS)) {
+  SPR['cap_' + kind] = Array.from({ length: 7 }, (_, r) => Array.from({ length: 7 }, (_, c) =>
+    r === 0 || r === 6 ? +(c > 0 && c < 6) : c === 0 || c === 6 ? 1 : c >= 2 && c <= 4 ? +rows[r - 1][c - 2] : 0));
+}
 
+// A sprite and its glow are painted once and kept, then stamped on each frame. Painting the glow
+// square by square every frame was the slowest thing on the page.
+const glowCache = new Map();
 function drawSprite(spr, cx, cy, color, sc) {
-  const cols = spr[0].length, rows = spr.length;
-  const ox = Math.round(cx - cols * sc / 2), oy = Math.round(cy - rows * sc / 2);
-  ctx.save();
-  ctx.shadowColor = color; ctx.shadowBlur = sc * 3.3; ctx.fillStyle = color;
-  for (let r = 0; r < rows; r++)
-    for (let c = 0; c < cols; c++)
-      if (spr[r][c]) ctx.fillRect(ox + c * sc, oy + r * sc, sc, sc);
-  ctx.restore();
+  const cols = spr[0].length, rows = spr.length, pad = Math.ceil(sc * 5) + 2;
+  let per = glowCache.get(spr);
+  if (!per) glowCache.set(spr, per = new Map());
+  let g = per.get(color + sc);
+  if (!g) {
+    const c = document.createElement('canvas');
+    c.width = Math.ceil((cols * sc + 2 * pad) * dpr); c.height = Math.ceil((rows * sc + 2 * pad) * dpr);
+    const x = c.getContext('2d');
+    x.scale(dpr, dpr);
+    x.shadowColor = color; x.shadowBlur = sc * 3.3; x.fillStyle = color;
+    for (let r = 0; r < rows; r++)
+      for (let k = 0; k < cols; k++)
+        if (spr[r][k]) x.fillRect(pad + k * sc, pad + r * sc, sc, sc);
+    per.set(color + sc, g = { c, w: c.width / dpr, h: c.height / dpr });
+  }
+  ctx.drawImage(g.c, Math.round(cx - cols * sc / 2) - pad, Math.round(cy - rows * sc / 2) - pad, g.w, g.h);
 }
 
 let SHIP_SVG = '<svg viewBox="0 0 7 6" aria-hidden="true">';
@@ -510,18 +698,29 @@ function diff() {
 // ship back if they go quiet, and finishes the run for them if they lose every ship.
 let manual = false, gameOver = false, lastInput = 0, diveIn = 0;
 const keys = new Set();                       // 'left' | 'right' | 'fire'
-const pointer = { down: false, id: -1, x: 0 };
+// hover: in the arcade the ship follows the mouse without a button held. mx is where the mouse
+// last was; park is where it was when the keyboard took over, so a nudge doesn't steal the ship back.
+const pointer = { down: false, id: -1, x: 0, hover: false, mx: 0, park: 0 };
+
+// Ship upgrades (arcade only). Capsules fall from some of the enemies you shoot; fly into one to take it.
+const up = { shot: 1, rapid: 0, shield: false };   // shot 1-3: single, twin, triple. rapid 0-2: faster fire.
+const UP_COLOR = { shot: C.gold, rapid: C.tech, shield: C.cyan, bonus: '#ffffff' };
+let drops = [], floaters = [], waveDrops = 0;
 
 function updatePrompt() {
   let text = '';
   if (mode === 'arcade') {
-    if (arcadeHint && phase !== 'over') text = touchFirst ? 'DRAG TO MOVE AND FIRE' : 'ARROWS MOVE  SPACE FIRES';
+    if (phase === 'over') text = '';
+    else if (arcadeHint) {
+      const long = 'MOUSE OR ARROWS MOVE  CLICK OR SPACE FIRES';
+      text = touchFirst ? 'DRAG TO MOVE AND FIRE' : long.length * 1.14 * px(getComputedStyle(promptEl).fontSize) + 90 < G.w ? long : 'MOUSE MOVES  CLICK FIRES';
+    } else text = [up.shot > 1 && (up.shot === 2 ? 'TWIN SHOT' : 'TRIPLE SHOT'), up.rapid > 0 && (up.rapid === 1 ? 'RAPID' : 'RAPID 2'), up.shield && 'SHIELD'].filter(Boolean).join(' · ');
   } else if (phase !== 'done') {
     if (gameOver) text = 'GAME OVER';
     else if (!manual) text = touchFirst ? 'DRAG TO PLAY' : 'ARROWS + SPACE TO PLAY';
   }
   promptEl.textContent = text;
-  promptEl.classList.toggle('steady', gameOver);
+  promptEl.classList.toggle('steady', gameOver || (mode === 'arcade' && !arcadeHint));
 }
 
 function renderLives() {
@@ -534,7 +733,7 @@ function setScore() {
   scoreEl.textContent = String(score).padStart(5, '0');
   while (mode === 'arcade' && score >= nextShipAt) {      // a bonus ship every 20,000 points, up to five
     nextShipAt += 20000;
-    if (lives < 5) { lives++; renderLives(); [784, 1047, 1319].forEach((f, i) => setTimeout(() => tone(f, 0.1, 'square', 0.06), i * 80)); }
+    if (lives < 5) { lives++; renderLives(); sfx.jingle([784, 1047, 1319], 0.08, 0.1); }
   }
 }
 
@@ -582,6 +781,7 @@ function layout() {
   dpr = Math.min(window.devicePixelRatio || 1, 3);
   canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  glowCache.clear();                   // sprites are repainted at the new size
 
   const cs = getComputedStyle(safeEl);
   const sT = px(cs.paddingTop), sR = px(cs.paddingRight), sB = px(cs.paddingBottom), sL = px(cs.paddingLeft);
@@ -609,6 +809,7 @@ function layout() {
 
   G.x = g.gx; G.w = g.gw; G.cx = g.gx + g.gw / 2; G.u = g.u; G.shipY = g.shipY;
   document.documentElement.style.setProperty('--foot-cx', G.cx + 'px');
+  soundBtn.style.left = (document.body.classList.contains('side') ? g.gx + 10 : Math.max(12, sL)) + 'px';
   G.bv = Math.max(12, H * 0.022);      // ship shot speed, px per step
   G.ebv = Math.max(3.5, H * 0.012);    // enemy shot speed
   G.vmax = 2.6 * g.u;                  // ship top speed
@@ -648,21 +849,22 @@ function kill(e) {
   if (mode === 'bio') revealLine(e.id);
   score += (big ? 500 : 150) * (diving ? 2 : 1);
   setScore();
-  boom(big);
+  sfx.boom(big);
   target = enemies.findIndex(alive);
   holdUntil = frame + 14;
   if (mode === 'arcade' && phase === 'over') return;
+  dropFrom(e, big);
   if (target === -1 && mode === 'arcade') {      // wave cleared: bonus, then a harder one
     score += 500 * Math.min(stage, 10); setScore();
     stage++;
     banner = { text: 'STAGE ' + stage, until: frame + 130 };
     spawnWave(110);
     updateHud();
-    [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.12, 'square', 0.06), i * 90));
+    sfx.jingle([523, 659, 784, 1047], 0.09, 0.12, 0.06, 0.15);
   } else if (target === -1) {
     phase = 'done'; doneAt = frame;
     manual = false; keys.clear(); pointer.down = false; updatePrompt();
-    [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.15, 'square', 0.07), 250 + i * 100));
+    sfx.jingle([523, 659, 784, 1047], 0.1, 0.15, 0.07, 0.25);
   }
 }
 
@@ -670,8 +872,33 @@ function hitEnemy(e) {
   if (--e.hp > 0) {            // bosses take two hits, and change colour after the first
     e.color = C.hurt;
     burst(e.x, e.y, '#ffffff', 8, 3);
-    tone(700, 0.08, 'square', 0.06);
+    sfx.clang();
   } else kill(e);
+}
+
+// Every boss drops a capsule, and now and then another enemy does: three a wave at most.
+// It's whichever upgrade the ship still lacks; once it has them all, capsules are worth points.
+function dropFrom(e, big) {
+  if (mode !== 'arcade' || waveDrops >= 3 || drops.length >= 2) return;
+  if (!big && Math.random() > 0.08) return;
+  const need = [];
+  if (up.shot < 3) need.push('shot', 'shot');
+  if (up.rapid < 2) need.push('rapid', 'rapid');
+  if (!up.shield) need.push('shield');
+  waveDrops++;
+  drops.push({ kind: need.length ? need[Math.floor(Math.random() * need.length)] : 'bonus', x: clamp(e.x, G.x + 6 * G.u, G.x + G.w - 6 * G.u), y: Math.max(e.y, 0), age: 0 });
+  sfx.drop();
+}
+
+function collect(d) {
+  let text;
+  if (d.kind === 'shot' && up.shot < 3) text = ++up.shot === 2 ? 'TWIN SHOT' : 'TRIPLE SHOT';
+  else if (d.kind === 'rapid' && up.rapid < 2) { up.rapid++; text = 'RAPID FIRE'; }
+  else if (d.kind === 'shield' && !up.shield) { up.shield = true; text = 'SHIELD'; }
+  else { score += 500; setScore(); text = '+500'; }       // already have it: points instead
+  floaters.push({ text, x: ship.x, y: ship.y - 9 * G.u, life: 75, color: UP_COLOR[d.kind] });
+  sfx.pickup();
+  updatePrompt();
 }
 
 function startDive(e) {
@@ -686,7 +913,7 @@ function startDive(e) {
   };
   const D = diff();
   e.t = 0; e.dt = 1 / D.diveFrames; e.state = 'diving'; e.dived = true; e.shots = D.diveShots.slice();
-  tone(900, 0.35, 'square', 0.04, 220);
+  sfx.dive();
 }
 
 // On autopilot the last ship is never put at risk, so the run always finishes. A player gets no such favour.
@@ -697,7 +924,7 @@ function enemyShoot(e) {
   const vy = G.ebv * diff().shot, tt = Math.max(1, (ship.y - e.y) / vy);
   const vx = clamp((ship.x - e.x) / tt, -vy * 0.4, vy * 0.4);
   ebullets.push({ x: e.x, y: e.y + 4 * e.sc, vx, vy });
-  tone(240, 0.06, 'square', 0.03);
+  sfx.enemyShot();
 }
 
 // Where a shot fired right now would meet this enemy. The dive path is known, so this is exact.
@@ -715,12 +942,20 @@ function intercept(e) {
 }
 
 function shipHit() {
+  if (up.shield) {             // the shield takes this one
+    up.shield = false; ship.inv = 50;
+    burst(ship.x, ship.y, C.cyan, 16, 5);
+    sfx.shieldBreak(); updatePrompt();
+    return;
+  }
   lives--; renderLives();
   burst(ship.x, ship.y, C.ship, 30, 6);
-  boom(true);
+  sfx.shipBoom();
   ship.dead = true; ship.respawn = 70;
+  up.shot = Math.max(1, up.shot - 1); up.rapid = Math.max(0, up.rapid - 1);   // a lost ship costs one step of each upgrade
   if (lives <= 0 && mode === 'arcade') {      // arcade: that's the game. The score panel opens after the explosion.
     phase = 'over'; overAt = frame + 70; keys.clear(); pointer.down = false;
+    sfx.over();
     updatePrompt();
   } else if (lives <= 0) {     // bio: out of ships, so the autopilot flies the rest and the bio still completes
     gameOver = true; manual = false; keys.clear(); pointer.down = false;
@@ -740,15 +975,19 @@ function flyManual() {
   let dx = 0;
   if (keys.has('left')) dx -= G.vmax * 0.85;
   if (keys.has('right')) dx += G.vmax * 0.85;
-  if (pointer.down) dx = clamp(pointer.x - ship.x, -G.vmax, G.vmax);
-  ship.x = clamp(ship.x + dx, lo, hi);
+  // A finger or the mouse puts the ship right where it points: no catching up, so no lag.
+  ship.x = pointer.down || pointer.hover ? clamp(pointer.x, lo, hi) : clamp(ship.x + dx, lo, hi);
 
   ship.cd--;
   const holding = keys.size > 0 || pointer.down;
-  if ((keys.has('fire') || pointer.down) && ship.cd <= 0 && bullets.filter(b => b.tid < 0).length < 2) {
-    bullets.push({ x: ship.x, y: ship.y - 4 * u, tid: -1 });
-    ship.cd = 10;
-    tone(1100, 0.04, 'square', 0.05);
+  // One volley at a time counts against the limit (its lead shot), however many shots are in it.
+  if ((keys.has('fire') || pointer.down) && ship.cd <= 0 && bullets.filter(b => b.lead).length < 2 + up.rapid) {
+    const y = ship.y - 4 * u, s = (up.shot + 1) * u;
+    if (up.shot === 2) bullets.push({ x: ship.x - s, y, tid: -1, lead: true }, { x: ship.x + s, y, tid: -1 });
+    else bullets.push({ x: ship.x, y, tid: -1, lead: true });
+    if (up.shot === 3) bullets.push({ x: ship.x - s, y: y + u, tid: -1, vx: -0.13 * G.bv }, { x: ship.x + s, y: y + u, tid: -1, vx: 0.13 * G.bv });
+    ship.cd = [10, 8, 6][up.rapid];
+    sfx.shot();
   }
   if (holding) lastInput = frame;
   else if (mode === 'bio' && frame - lastInput > 120) { manual = false; updatePrompt(); }   // two quiet seconds: autopilot again
@@ -761,7 +1000,7 @@ function spawnWave(delay) {
     state: 'waiting', t: 0, y: -1000, startAt: frame + delay + i * D.entryGap,
     hp: e.type === 'boss' ? D.bossHp : 1, dived: false, shots: [], color: LINES[i].color, hov: i * 0.9,
   }));
-  phase = 'entering'; target = -1;
+  phase = 'entering'; target = -1; waveDrops = 0;
 }
 
 // Back to a clean slate: empty bio, no shots in the air, full ships, score zero.
@@ -775,10 +1014,12 @@ function resetRun() {
   });
   emailBtn.textContent = 'EMAIL';
   bullets = []; ebullets = []; particles = []; banner = null;
+  drops = []; floaters = []; waveDrops = 0; Object.assign(up, { shot: 1, rapid: 0, shield: false });
   frame = 0; score = 0; lives = 3; holdUntil = 0; fireIn = 70; doneAt = 0; diveIn = 80;
   stage = 1; nextShipAt = 20000; gameOver = false; arcadeHint = false;
   Object.assign(ship, { x: G.cx, y: G.shipY, vy: 0, cd: 0, dead: false, respawn: 0, inv: 0 });
-  keys.clear(); pointer.down = false;
+  keys.clear(); pointer.down = false; pointer.hover = false; pointer.park = pointer.mx;
+  music.step = 0;                       // a new run starts the tune from the top
   setScore(); renderLives();
 }
 
@@ -815,10 +1056,6 @@ function exitArcade() {
 // Leaderboard. The top ten live in a small database behind /api/scores.
 let board = null, boardDown = false, myId = 0, saving = false, finalScore = 0, finalStage = 1;
 let paused = false, boardView = false;   // the panel doubles as a plain leaderboard view; the game waits while it's open
-const stored = (key, value) => {            // browser storage can be blocked; never let that break the game
-  try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (e) {}
-  return null;
-};
 
 function renderBoard() {
   boardEl.textContent = '';
@@ -985,7 +1222,7 @@ function updateShip() {
     if (pending < tg.hp && committed && !waitsToDive && Math.abs(ship.x - I.x) <= 1.6 * u) {
       bullets.push({ x: ship.x, y: ship.y - 4 * u, tid: tg.id });
       ship.cd = 12;
-      tone(1100, 0.04, 'square', 0.05);
+      sfx.shot();
     }
   }
 }
@@ -1003,7 +1240,7 @@ function update() {
     }
     if (e.state === 'entering') {
       e.t += 0.016;
-      if (e.t >= 1) { e.state = 'formed'; e.x = e.fx; e.y = e.fy; tone(440 + e.id * 55, 0.07); }
+      if (e.t >= 1) { e.state = 'formed'; e.x = e.fx; e.y = e.fy; sfx.settle(e.id); }
       else { const p = bz(e.path, e.t); e.x = p.x; e.y = p.y; }
     } else if (e.state === 'diving') {
       e.t += e.dt;
@@ -1054,13 +1291,27 @@ function update() {
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     b.y -= G.bv;
+    if (b.vx) b.x += b.vx;      // the outer shots of a triple fan out
     const own = b.tid >= 0 ? enemies[b.tid] : null;
     const e = own ? (hittable(own) && touches(b, own) ? own : null) : enemies.find(o => shootable(o) && touches(b, o));
     if (e) {
       bullets.splice(i, 1);
-      if (!own && shielded(e)) { burst(b.x, b.y, '#ffffff', 5, 2); tone(160, 0.06, 'square', 0.05); }   // bounces off
+      if (!own && shielded(e)) { burst(b.x, b.y, '#ffffff', 5, 2); sfx.bounce(); }   // bounces off
       else hitEnemy(e);
     } else if (b.y < -20) bullets.splice(i, 1);
+  }
+
+  // Upgrade capsules drift down; touching one with the ship takes it.
+  for (let i = drops.length - 1; i >= 0; i--) {
+    const d = drops[i];
+    d.age++; d.y += 0.55 * u;
+    if (!ship.dead && phase !== 'over' && Math.abs(d.x - ship.x) < 6.5 * u && Math.abs(d.y - ship.y) < 6 * u) { drops.splice(i, 1); collect(d); }
+    else if (d.y > H + 8 * u) drops.splice(i, 1);
+  }
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const f = floaters[i];
+    f.y -= 0.22 * u;
+    if (--f.life <= 0) floaters.splice(i, 1);
   }
 
   if (phase === 'done' && againEl.hidden && frame - doneAt > 110) againEl.hidden = false;
@@ -1108,6 +1359,8 @@ function draw() {
     drawSprite(SPR[e.type], e.x, e.y, e.color, e.sc);
   }
 
+  for (const d of drops) drawSprite(SPR['cap_' + d.kind], d.x, d.y, (d.age >> 3) & 1 ? '#ffffff' : UP_COLOR[d.kind], u);
+
   ctx.save();
   ctx.shadowColor = C.shot; ctx.shadowBlur = u * 2.3; ctx.fillStyle = C.shot;
   for (const b of bullets) ctx.fillRect(Math.round(b.x - u / 2), Math.round(b.y - 1.7 * u), u, Math.round(3.4 * u));
@@ -1124,13 +1377,35 @@ function draw() {
 
   const blink = ship.inv > 0 && frame % 8 < 4;
   if (!ship.dead && !blink && ship.y > -12 * u) {
-    const fh = ((phase === 'done' ? 4 : 1.3) + Math.random() * 2.3) * u;
+    const fh = ((phase === 'done' ? 4 : 1.3 + 0.7 * up.rapid) + Math.random() * 2.3) * u;
     ctx.save();
-    ctx.shadowColor = '#ff7700'; ctx.shadowBlur = u * 2.6;
-    ctx.fillStyle = 'rgba(255,' + (100 + Math.random() * 80 | 0) + ',0,0.85)';
+    ctx.shadowColor = up.rapid ? '#66ccff' : '#ff7700'; ctx.shadowBlur = u * 2.6;      // rapid fire burns blue
+    ctx.fillStyle = up.rapid ? 'rgba(' + (120 + Math.random() * 80 | 0) + ',225,255,0.9)' : 'rgba(255,' + (100 + Math.random() * 80 | 0) + ',0,0.85)';
     ctx.fillRect(Math.round(ship.x - u * 0.67), Math.round(ship.y + 3 * u), Math.round(u * 1.34), fh);
     ctx.restore();
-    drawSprite(SPR.ship, ship.x, ship.y, C.ship, u);
+    drawSprite([SPR.ship, SPR.ship2, SPR.ship3][up.shot - 1], ship.x, ship.y, C.ship, u);
+    if (up.shield) {                              // a dome of dots turning over the ship (open underneath, clear of the status line)
+      ctx.fillStyle = frame % 6 < 3 ? '#ffffff' : C.cyan;
+      for (let k = 0; k < 14; k++) {
+        const a = k / 14 * Math.PI * 2 + frame * 0.05;
+        if (Math.sin(a) > 0.5) continue;
+        ctx.fillRect(Math.round(ship.x + Math.cos(a) * 8 * u - u / 2), Math.round(ship.y + Math.sin(a) * 6.5 * u - u / 2), u, u);
+      }
+    }
+  }
+
+  if (floaters.length) {                          // "TWIN SHOT" rising off the ship when a capsule is taken
+    const fs = Math.max(8, Math.round(2.4 * u));
+    ctx.save();
+    ctx.font = fs + 'px "Press Start 2P", ui-monospace, monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const f of floaters) {
+      const half = f.text.length * fs / 2 + 4;
+      ctx.globalAlpha = Math.min(1, f.life / 25);
+      ctx.fillStyle = f.color;
+      ctx.fillText(f.text, clamp(f.x, G.x + half, G.x + G.w - half), f.y);
+    }
+    ctx.restore();
   }
 
   if (banner && frame < banner.until) {        // "STAGE 3" between waves, fading out
@@ -1147,13 +1422,22 @@ function draw() {
 }
 
 // Fixed 60-per-second steps, so the game runs the same speed on any display.
+const STEP = 1000 / 60;
 let last = performance.now(), acc = 0;
 function loop(now) {
-  acc += Math.min(100, now - last); last = now;
+  let dt = Math.min(100, now - last); last = now;
+  // A screen never ticks at exactly 60 or 120 a second. Left alone, that drift makes the odd frame
+  // get no game step and the next one two, which reads as stutter. So round to the nearest.
+  for (const m of [1, 0.5, 2]) if (Math.abs(dt - STEP * m) < 1.2) dt = STEP * m;
+  acc += dt;
   let n = 0;
-  while (acc >= 16.667 && n < 5) { if (!paused) update(); acc -= 16.667; n++; }
+  while (acc >= STEP - 0.01 && n < 5) { if (!paused) update(); acc -= STEP; n++; }
   if (n === 5) acc = 0;
+  // The ship follows the finger or mouse on every frame drawn, even between game steps.
+  if (manual && !paused && !ship.dead && (phase === 'battle' || phase === 'entering') && (pointer.down || pointer.hover))
+    ship.x = clamp(pointer.x, G.x + 5 * G.u, G.x + G.w - 5 * G.u);
   draw();
+  syncMusic();
   requestAnimationFrame(loop);
 }
 
@@ -1171,6 +1455,7 @@ const onControl = e => !!(e.target && e.target.closest && e.target.closest('a, b
 document.addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target && e.target.closest && e.target.closest('input')) return;   // typing initials: A, D and W are letters here
+  if ((e.key === 'm' || e.key === 'M') && !e.repeat) { toggleSound(); return; }
   if (e.key === 'Escape' && boardView) { e.preventDefault(); closeBoard(); return; }
   if (e.key === 'Escape' && mode === 'arcade') { e.preventDefault(); exitArcade(); return; }
   if (phase === 'over' || paused) return;
@@ -1182,6 +1467,7 @@ document.addEventListener('keydown', e => {
   if (!k || (k === 'fire' && onControl(e))) return;
   e.preventDefault();
   if (gameOver) return;
+  if (k !== 'fire') { pointer.hover = false; pointer.park = pointer.mx; }   // steering by keyboard: the mouse lets go
   keys.add(k); takeOver();
 });
 document.addEventListener('keyup', e => { keys.delete(KEYMAP[e.key]); });
@@ -1189,9 +1475,15 @@ window.addEventListener('blur', () => { keys.clear(); pointer.down = false; });
 document.addEventListener('pointerdown', e => {
   if (onControl(e) || (e.pointerType === 'mouse' && e.button !== 0) || gameOver || paused || phase === 'done' || phase === 'over') return;
   pointer.down = true; pointer.id = e.pointerId; pointer.x = e.clientX;
+  if (e.pointerType === 'mouse' && mode === 'arcade') pointer.hover = true;
   takeOver();
 });
-document.addEventListener('pointermove', e => { if (pointer.down && e.pointerId === pointer.id) pointer.x = e.clientX; });
+document.addEventListener('pointermove', e => {
+  if (e.pointerType === 'mouse') pointer.mx = e.clientX;
+  if (pointer.down && e.pointerId === pointer.id) pointer.x = e.clientX;
+  // Arcade, with a mouse: the ship follows it without a button held. Clicking fires.
+  else if (e.pointerType === 'mouse' && mode === 'arcade' && (pointer.hover || Math.abs(e.clientX - pointer.park) > 20)) { pointer.x = e.clientX; pointer.hover = true; }
+});
 const pointerEnd = e => { if (e.pointerId === pointer.id) pointer.down = false; };
 document.addEventListener('pointerup', pointerEnd);
 document.addEventListener('pointercancel', pointerEnd);
@@ -1201,6 +1493,7 @@ boardBtn.addEventListener('click', openBoard);
 overAgainBtn.addEventListener('click', startArcade);
 overBioBtn.addEventListener('click', exitArcade);
 overCloseBtn.addEventListener('click', closeBoard);
+soundBtn.addEventListener('click', () => { toggleSound(); soundBtn.blur(); });   // blur: Space must fire, not press this again
 
 updatePrompt();
 layout();
