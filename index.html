@@ -1,0 +1,236 @@
+<title>Travis Paivarinta</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<style>
+/*
+  Single-theme dark (retro arcade -- intentional)
+  Layout: full-screen canvas; characters drop L-to-R per top-paddle hit
+  Color: white on black (#fff paddles/text, #000 bg)
+  Type: Press Start 2P
+*/
+:root {
+  --bg: #000;
+  --w: #fff;
+  --w75: rgba(255,255,255,0.75);
+  --w50: rgba(255,255,255,0.5);
+  --w18: rgba(255,255,255,0.18);
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  font-family: 'Press Start 2P', monospace;
+}
+
+#canvas { position: fixed; inset: 0; display: block; }
+
+#scanlines {
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent 0, transparent 3px, rgba(0,0,0,0.09) 3px, rgba(0,0,0,0.09) 4px);
+  pointer-events: none; z-index: 20;
+}
+
+#bio {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: clamp(10px, 2.4vh, 20px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0;
+  pointer-events: none; z-index: 10;
+}
+
+.bl {
+  opacity: 0;
+  text-align: center;
+  pointer-events: none;
+  line-height: 1.8;
+  min-height: 1.8em;
+}
+
+.bl.name  { font-size: clamp(12px, 2.6vw, 20px); color: var(--w); text-shadow: 0 0 10px rgba(255,255,255,0.45); }
+.bl.role  { font-size: clamp(9px, 1.8vw, 14px);  color: var(--w75); }
+.bl.small { font-size: clamp(7px, 1.3vw, 10px);  color: var(--w50); letter-spacing: 0.08em; }
+.bl.link  { font-size: clamp(7px, 1.3vw, 10px);  color: var(--w); pointer-events: auto; cursor: pointer; }
+
+@keyframes char-drop {
+  0%   { opacity: 0; transform: translateY(-65vh); }
+  62%  { opacity: 1; transform: translateY(5px); }
+  80%  { transform: translateY(-2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+#hud {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top, 0px));
+  left: 0; right: 0;
+  display: flex; justify-content: center; gap: 52px;
+  font-size: 11px; color: var(--w18);
+  pointer-events: none; z-index: 15;
+}
+
+#prompt {
+  position: fixed;
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  left: 0; right: 0;
+  text-align: center; font-size: 7px; letter-spacing: 0.12em;
+  color: var(--w18); pointer-events: none; z-index: 15;
+  animation: blink 1.1s step-end infinite; transition: opacity 0.6s;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+</style>
+
+<canvas id="canvas"></canvas>
+<div id="scanlines"></div>
+<div id="hud"><span id="st">0</span><span id="sb">0</span></div>
+<div id="bio">
+  <div class="bl name"  data-t="TRAVIS PAIVARINTA"></div>
+  <div class="bl role"  data-t="FOUNDER"></div>
+  <div class="bl role"  data-t="ESTIMATEKIT"></div>
+  <div class="bl small" data-t="SALES ANALYST @ RITCHIE-SMITH"></div>
+  <div class="bl small" data-t="EX STORE MANAGER, SPECIALIZED"></div>
+  <div class="bl small" data-t="UFV  |  ABBOTSFORD, BC"></div>
+  <div class="bl link"  data-t="ESTIMATEKIT.COM ->"></div>
+</div>
+<div id="prompt">RALLY IN PROGRESS</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+const lines = [...document.querySelectorAll('.bl')];
+let revealIdx = 0;
+
+function reveal() {
+  if (revealIdx >= lines.length) return;
+  const el = lines[revealIdx++];
+  const text = el.dataset.t || '';
+  el.style.opacity = '1';
+  [...text].forEach((ch, i) => {
+    const span = document.createElement('span');
+    span.style.cssText = 'display:inline-block;opacity:0;animation:char-drop 0.44s cubic-bezier(0.17,1.35,0.4,1) ' + (i * 34) + 'ms forwards';
+    span.textContent = ch === ' ' ? ' ' : ch;
+    el.appendChild(span);
+  });
+  if (revealIdx >= lines.length) {
+    document.getElementById('prompt').style.opacity = '0';
+  }
+}
+
+let audioCtx = null;
+function beep(freq, dur) {
+  if (!audioCtx) return;
+  try {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = 'square'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.07, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + dur + 0.01);
+  } catch(e) {}
+}
+document.addEventListener('pointerdown', function() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}, { once: true });
+
+let W, H, dpr;
+var PH = 10, PW = 0.13, BS = 9, MG = 30, MAX_SPD = 0.016;
+var ball = null, topP, botP, scoreT = 0, scoreB = 0;
+var wobT = 0, wobB = Math.PI * 0.7;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  var pw = Math.round(W * PW);
+  topP = { x: W/2 - pw/2, y: MG,          w: pw, h: PH };
+  botP = { x: W/2 - pw/2, y: H - MG - PH, w: pw, h: PH };
+  if (!ball) { ball = { x: W/2, y: H/2, vx: 0, vy: 0 }; launch(1); }
+}
+
+function launch(dir) {
+  var angle = (Math.random() * 44 - 22) * Math.PI / 180;
+  var spd = H * 0.007;
+  ball.vx = Math.sin(angle) * spd;
+  ball.vy = dir * spd;
+}
+
+function update() {
+  ball.x += ball.vx; ball.y += ball.vy;
+
+  if (ball.x < BS/2)     { ball.x = BS/2;     ball.vx =  Math.abs(ball.vx); beep(200, 0.04); }
+  if (ball.x > W - BS/2) { ball.x = W - BS/2; ball.vx = -Math.abs(ball.vx); beep(200, 0.04); }
+
+  wobT += 0.027; wobB += 0.023;
+  var wA = topP.w * 0.14;
+  topP.x = Math.max(0, Math.min(W - topP.w, ball.x + Math.sin(wobT) * wA - topP.w/2));
+  botP.x = Math.max(0, Math.min(W - botP.w, ball.x + Math.sin(wobB) * wA - botP.w/2));
+
+  var base = H * 0.007;
+
+  if (ball.vy < 0 &&
+      ball.y - BS/2 <= topP.y + topP.h && ball.y - BS/2 >= topP.y - 3 &&
+      ball.x + BS/2 > topP.x && ball.x - BS/2 < topP.x + topP.w) {
+    var spd1 = Math.min(Math.abs(ball.vy) * 1.015, H * MAX_SPD);
+    ball.vy = spd1; ball.y = topP.y + topP.h + BS/2;
+    var rel1 = (ball.x - topP.x) / topP.w;
+    ball.vx = Math.max(-spd1 * 0.6, Math.min(spd1 * 0.6, (rel1 - 0.5) * base * 2.8));
+    scoreT++; document.getElementById('st').textContent = scoreT;
+    beep(880, 0.07); reveal();
+  }
+
+  if (ball.vy > 0 &&
+      ball.y + BS/2 >= botP.y && ball.y + BS/2 <= botP.y + botP.h + 3 &&
+      ball.x + BS/2 > botP.x && ball.x - BS/2 < botP.x + botP.w) {
+    var spd2 = Math.min(Math.abs(ball.vy) * 1.015, H * MAX_SPD);
+    ball.vy = -spd2; ball.y = botP.y - BS/2;
+    var rel2 = (ball.x - botP.x) / botP.w;
+    ball.vx = Math.max(-spd2 * 0.6, Math.min(spd2 * 0.6, (rel2 - 0.5) * base * 2.8));
+    scoreB++; document.getElementById('sb').textContent = scoreB;
+    beep(440, 0.07);
+  }
+
+  if (ball.y < -150 || ball.y > H + 150) { ball.x = W/2; ball.y = H/2; launch(1); }
+}
+
+function draw() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([Math.round(H * 0.013), Math.round(H * 0.018)]);
+  ctx.beginPath(); ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(255,255,255,0.55)'; ctx.shadowBlur = 14;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(Math.round(topP.x), topP.y, Math.round(topP.w), topP.h);
+  ctx.fillRect(Math.round(botP.x), botP.y, Math.round(botP.w), botP.h);
+  ctx.restore();
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(255,255,255,0.75)'; ctx.shadowBlur = 10;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(Math.round(ball.x - BS/2), Math.round(ball.y - BS/2), BS, BS);
+  ctx.restore();
+}
+
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+
+window.addEventListener('resize', resize);
+resize();
+loop();
+
+document.querySelector('.bl.link').addEventListener('click', function() {
+  window.open('https://estimatekit.com', '_blank');
+});
+</script>
